@@ -41,7 +41,7 @@ def _validate_templates(value: str | list[str] | dict[str, str]) -> None:
 class StdioMcpServer(BaseModel):
     """An MCP server launched as a local subprocess over stdio."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: Literal["stdio"] = "stdio"
     command: str
@@ -84,7 +84,7 @@ class StdioMcpServer(BaseModel):
 class _RemoteMcpServer(BaseModel):
     """Shared fields for HTTP-style transports."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
