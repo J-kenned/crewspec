@@ -1,18 +1,13 @@
-"""crewspec CLI install, run and manage agent teams."""
+"""crewspec CLI for managing agent definitions."""
 
 import sys
 
-
-COMMANDS = ["install", "run", "up", "down", "status", "list"]
+COMMANDS = ["install", "list"]
 
 HELP = """crewspec — declarative AI agent crews
 
 Usage:
   crewspec install <pack>              Install an agent pack
-  crewspec run <agent>                 Run a single agent
-  crewspec up                          Start all agents in crewspec.yaml
-  crewspec down                        Stop all running agents
-  crewspec status                      Show running agents and their state
   crewspec list                        List installed packs
 
 Options:
