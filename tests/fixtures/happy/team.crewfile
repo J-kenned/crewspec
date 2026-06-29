@@ -1,0 +1,27 @@
+version: "0.1"
+
+agents:
+  reviewer:
+    name: reviewer
+    persona: agents/reviewer.md
+    allowed_tools: [Read, Edit, "mcp__github__*"]
+    depends_on:
+      skills: [lint]
+      mcps: [github]
+
+skills:
+  lint:
+    name: lint
+    path: skills/lint
+    description: Run the linter
+    depends_on:
+      skills: [format]
+  format:
+    name: format
+    path: skills/format
+
+mcps:
+  github:
+    type: stdio
+    command: gh-mcp
+    args: [serve]

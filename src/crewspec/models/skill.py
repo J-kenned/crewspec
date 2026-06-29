@@ -21,8 +21,8 @@ class SkillDef(BaseModel):
 class XCrewspecFrontmatter(BaseModel):
     """The ``x-crewspec`` block embedded in ``SKILL.md`` frontmatter.
 
-   The contract for skill-declared dependencies, the parser
-   reads this block out of skill frontmatter.
+    The contract for skill-declared dependencies, the parser
+    reads this block out of skill frontmatter.
     """
 
     model_config = ConfigDict(extra="forbid")
