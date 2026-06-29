@@ -1,0 +1,33 @@
+[project]
+name = "crewspec"
+version = "0.0.1"
+description = "Declarative spec and runtime for composable AI agents and teams"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "John Kennedy", email = "me@johnkennedy.ie" }
+]
+keywords = ["ai", "agents", "mcp", "llm", "automation"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/J-kenned/crewspec"
+Repository = "https://github.com/J-kenned/crewspec"
+Issues = "https://github.com/J-kenned/crewspec/issues"
+
+[project.scripts]
+crewspec = "crewspec.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.15,<0.12.0"]
+build-backend = "uv_build"
