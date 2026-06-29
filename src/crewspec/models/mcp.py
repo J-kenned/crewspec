@@ -18,7 +18,11 @@ from typing import Annotated, Literal, Mapping, Self, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from crewspec.models.interpolate import interpolate, validate_template
+from crewspec.models.interpolate import (
+    SecretResolveFn,
+    interpolate,
+    validate_template,
+)
 
 
 def _validate_templates(value: str | list[str] | dict[str, str]) -> None:
@@ -52,15 +56,27 @@ class StdioMcpServer(BaseModel):
         _validate_templates(value)
         return value
 
-    def resolve(self, env: Mapping[str, str] | None = None) -> Self:
-        """Return a copy with ``${...}`` references substituted from ``env``."""
+    def resolve(
+        self,
+        env: Mapping[str, str] | None = None,
+        *,
+        secrets: SecretResolveFn | None = None,
+    ) -> Self:
+        """Return a copy with ``${...}`` references substituted from ``env``.
+
+        Secret references are routed through ``secrets`` (see
+        :func:`crewspec.resolver.resolve_server`) so their values are never
+        inlined; without it, a secret reference raises.
+        """
 
         src = os.environ if env is None else env
         return self.model_copy(
             update={
-                "command": interpolate(self.command, src),
-                "args": [interpolate(arg, src) for arg in self.args],
-                "env": {k: interpolate(v, src) for k, v in self.env.items()},
+                "command": interpolate(self.command, src, secrets=secrets),
+                "args": [interpolate(arg, src, secrets=secrets) for arg in self.args],
+                "env": {
+                    k: interpolate(v, src, secrets=secrets) for k, v in self.env.items()
+                },
             }
         )
 
@@ -79,14 +95,27 @@ class _RemoteMcpServer(BaseModel):
         _validate_templates(value)
         return value
 
-    def resolve(self, env: Mapping[str, str] | None = None) -> Self:
-        """Return a copy with ``${...}`` references substituted from ``env``."""
+    def resolve(
+        self,
+        env: Mapping[str, str] | None = None,
+        *,
+        secrets: SecretResolveFn | None = None,
+    ) -> Self:
+        """Return a copy with ``${...}`` references substituted from ``env``.
+
+        Secret references are routed through ``secrets`` (see
+        :func:`crewspec.resolver.resolve_server`) so their values are never
+        inlined; without it, a secret reference raises.
+        """
 
         src = os.environ if env is None else env
         return self.model_copy(
             update={
-                "url": interpolate(self.url, src),
-                "headers": {k: interpolate(v, src) for k, v in self.headers.items()},
+                "url": interpolate(self.url, src, secrets=secrets),
+                "headers": {
+                    k: interpolate(v, src, secrets=secrets)
+                    for k, v in self.headers.items()
+                },
             }
         )
 

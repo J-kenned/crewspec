@@ -10,10 +10,11 @@ Supported forms inside ``${...}``:
 
 * ``${VAR}``: substitute the value of ``VAR``.
 * ``${VAR:-default}``: substitute ``VAR`` if set, otherwise ``default``.
-* ``${secret:NAME}`` / ``${file:PATH}``: *reserved* secret references. The
-  vocabulary is parsed and validated here, but resolving the backing value is
-  deferred to a later release; :func:`interpolate` raises
-  :class:`SecretResolutionDeferred` if asked to resolve one.
+* ``${secret:NAME}`` / ``${file:PATH}``: secret references. The vocabulary is
+  parsed and validated here, but the backing value is *never* inlined. Pass a
+  ``secrets`` callback to :func:`interpolate` to turn each reference into a
+  runtime placeholder (see :mod:`crewspec.resolver.secrets`); without one,
+  :func:`interpolate` raises :class:`SecretResolutionDeferred`.
 
 Missing-env policy: resolving an unset ``VAR`` with no default is an error
 (:class:`MissingEnvVar`). Provide a default to opt out.
@@ -23,12 +24,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal, Mapping, Union
+from typing import Callable, Literal, Mapping, Union
 
 __all__ = [
     "EnvRef",
     "SecretRef",
     "Fragment",
+    "SecretResolveFn",
     "parse_refs",
     "interpolate",
     "InterpolationError",
@@ -76,6 +78,11 @@ class SecretRef:
 
 Fragment = Union[str, EnvRef, SecretRef]
 
+#: Maps a secret reference to the runtime placeholder substituted in its place.
+#: The callback resolves/validates the backing secret; the value is never
+#: returned here (only a pointer the launcher dereferences).
+SecretResolveFn = Callable[["SecretRef"], str]
+
 # A ``${...}`` placeholder. The body is validated separately so we can emit a
 # precise error for malformed contents rather than silently treating ``${`` as
 # a literal.
@@ -89,7 +96,7 @@ def _parse_body(body: str) -> EnvRef | SecretRef:
 
     if body.startswith("secret:") or body.startswith("file:"):
         kind, _, target = body.partition(":")
-        if not target:
+        if not target.strip():
             raise MalformedTemplate(f"empty target in '${{{body}}}'")
         # kind is narrowed by the startswith checks above.
         return SecretRef(kind=kind, target=target)  # type: ignore[arg-type]
@@ -134,12 +141,22 @@ def validate_template(template: str) -> None:
     parse_refs(template)
 
 
-def interpolate(template: str, env: Mapping[str, str]) -> str:
+def interpolate(
+    template: str,
+    env: Mapping[str, str],
+    *,
+    secrets: SecretResolveFn | None = None,
+) -> str:
     """Substitute ``${...}`` references in ``template`` using ``env``.
 
+    Environment references are inlined from ``env``. Secret references are
+    handed to the optional ``secrets`` callback, which returns the runtime
+    placeholder to substitute (the secret value is never inlined). When no
+    callback is supplied, encountering a secret reference is an error.
+
     Raises :class:`MissingEnvVar` for an unset var with no default,
-    :class:`SecretResolutionDeferred` for a secret reference, and
-    :class:`MalformedTemplate` for invalid placeholder syntax.
+    :class:`SecretResolutionDeferred` for a secret reference when ``secrets``
+    is ``None``, and :class:`MalformedTemplate` for invalid placeholder syntax.
     """
 
     out: list[str] = []
@@ -154,9 +171,11 @@ def interpolate(template: str, env: Mapping[str, str]) -> str:
                     f"and no default was provided"
                 )
             out.append(value)
-        else:
+        elif secrets is None:
             raise SecretResolutionDeferred(
-                f"cannot resolve '{fragment.kind}:{fragment.target}': secret "
-                f"resolution is not implemented yet"
+                f"cannot resolve '{fragment.kind}:{fragment.target}': no secret "
+                f"resolver was provided"
             )
+        else:
+            out.append(secrets(fragment))
     return "".join(out)

@@ -49,6 +49,15 @@ def test_file_ref_resolution_is_deferred() -> None:
         interpolate("${file:/run/secret}", {})
 
 
+def test_secret_callback_substitutes_placeholder() -> None:
+    out = interpolate(
+        "Bearer ${secret:API_KEY}",
+        {},
+        secrets=lambda ref: f"<{ref.kind}:{ref.target}>",
+    )
+    assert out == "Bearer <secret:API_KEY>"
+
+
 def test_unterminated_placeholder_raises() -> None:
     with pytest.raises(MalformedTemplate):
         interpolate("${HOST", {"HOST": "x"})
@@ -62,6 +71,11 @@ def test_invalid_var_name_raises() -> None:
 def test_empty_secret_target_raises() -> None:
     with pytest.raises(MalformedTemplate):
         interpolate("${secret:}", {})
+
+
+def test_whitespace_secret_target_raises() -> None:
+    with pytest.raises(MalformedTemplate):
+        interpolate("${secret:   }", {})
 
 
 def test_parse_refs_splits_literals_and_refs() -> None:
