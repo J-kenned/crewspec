@@ -3,6 +3,8 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from crewspec.ir import ResolvedIR
+
 
 class Emitter(ABC):
     """Render a resolved crewspec into target-specific artifacts.
@@ -15,12 +17,11 @@ class Emitter(ABC):
     name: str
 
     @abstractmethod
-    def emit(self, ir: object, dest: Path) -> None:
+    def emit(self, ir: ResolvedIR, dest: Path) -> None:
         """Write artifacts for ``ir`` into ``dest``.
 
         Args:
-            ir: The intermediate representation to render. Typed as ``object``
-                until the IR model lands in a later issue.
+            ir: The resolved intermediate representation to render.
             dest: Directory the emitter should write its artifacts into.
         """
         raise NotImplementedError
