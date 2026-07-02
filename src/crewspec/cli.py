@@ -18,6 +18,12 @@ from crewspec.emitters import EMITTERS, EmitError
 from crewspec.parser import CrewfileError, resolve_crewfile
 from crewspec.pipeline import InstallSummary, install
 from crewspec.resolver import ResolveError
+from crewspec.sources import (
+    SourceError,
+    SourceSpecError,
+    is_github_spec,
+    open_source,
+)
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -27,7 +33,7 @@ def cli() -> None:
 
 
 @cli.command("install")
-@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.argument("source")
 @click.option(
     "--target",
     type=click.Choice(sorted(EMITTERS)),
@@ -47,17 +53,24 @@ def cli() -> None:
     is_flag=True,
     help="Parse and resolve only; write no artifacts.",
 )
-def install_cmd(path: Path, target: str, out: Path, dry_run: bool) -> None:
-    """Install a crewfile: parse, resolve, then emit for the chosen target.
+def install_cmd(source: str, target: str, out: Path, dry_run: bool) -> None:
+    """Install a crew: parse, resolve, then emit for the chosen target.
 
-    PATH is a crewfile (``.crewfile`` / ``crewspec.yaml``) or a directory
-    containing one.
+    SOURCE is a local crewfile (``.crewfile`` / ``crewspec.yaml``) or a directory
+    containing one, or a ``github:owner/repo[@ref][/subdir]`` shorthand fetched
+    over HTTPS.
     """
 
+    if not is_github_spec(source) and not Path(source).exists():
+        raise click.BadParameter("path does not exist", param_hint="'SOURCE'")
+
     try:
-        crewfile = resolve_crewfile(path)
-        summary = install(crewfile, EMITTERS[target](), out, dry_run=dry_run)
-    except (CrewfileError, ResolveError, EmitError) as exc:
+        with open_source(source) as local:
+            crewfile = resolve_crewfile(local)
+            summary = install(crewfile, EMITTERS[target](), out, dry_run=dry_run)
+    except SourceSpecError as exc:
+        raise click.BadParameter(str(exc), param_hint="'SOURCE'") from exc
+    except (SourceError, CrewfileError, ResolveError, EmitError) as exc:
         raise click.ClickException(str(exc)) from exc
 
     _echo_summary(summary, dry_run=dry_run)

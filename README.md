@@ -38,6 +38,30 @@ crewspec install ./examples/code-review-crew --dry-run
 
 Run `crewspec --help` or `crewspec install --help` for the full option list.
 
+## Install from GitHub
+
+`SOURCE` may also be a GitHub shorthand instead of a local path:
+
+```bash
+crewspec install github:owner/repo[@ref][/subdir]
+# e.g. install the example pack straight from this repo:
+crewspec install github:J-kenned/crewspec@main/examples/code-review-crew
+```
+
+The pack is fetched over HTTPS as a [codeload](https://codeload.github.com)
+`tar.gz` and run through the same parse → resolve → emit pipeline as a local
+install — there is **no `git` dependency** and no clone. `@ref` pins a branch,
+tag, or commit SHA (default: the repo's default branch); an optional trailing
+`/subdir` selects a pack nested inside the repo.
+
+Notes and current limits:
+
+- The ref is a single path segment, so branch names containing `/` (e.g.
+  `feature/x`) cannot be addressed via the shorthand yet. Commit-SHA / lockfile
+  pinning is planned for 0.2.
+- Only **public** repositories are supported; private-repo authentication is
+  future work.
+
 ## Secrets
 
 String fields may carry `${...}` references. Plain `${VAR}` references are
