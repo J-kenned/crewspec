@@ -25,3 +25,12 @@ class Emitter(ABC):
             dest: Directory the emitter should write its artifacts into.
         """
         raise NotImplementedError
+
+    def output_path(self, dest: Path) -> Path:
+        """The concrete directory :meth:`emit` writes into, given ``dest``.
+
+        Defaults to ``dest`` itself. An emitter that owns a subtree under
+        ``dest`` (e.g. a plugin directory) overrides this so callers can report
+        the real artifact location without knowing the target's layout.
+        """
+        return dest

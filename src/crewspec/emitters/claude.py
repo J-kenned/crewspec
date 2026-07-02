@@ -37,8 +37,12 @@ class ClaudeEmitter(Emitter):
     #: The plugin's ``name`` (and namespace) in its ``plugin.json`` manifest.
     plugin_name = "crewspec"
 
+    def output_path(self, dest: Path) -> Path:
+        """The plugin root under ``dest`` that crewspec owns and writes into."""
+        return dest.joinpath(*self.plugin_path)
+
     def emit(self, ir: ResolvedIR, dest: Path) -> None:
-        plugin_root = dest.joinpath(*self.plugin_path)
+        plugin_root = self.output_path(dest)
 
         # crewspec owns this subtree: wipe and regenerate so re-emission is
         # byte-identical and never leaves a stale agent/skill behind.

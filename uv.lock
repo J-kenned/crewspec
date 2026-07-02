@@ -122,6 +122,7 @@ name = "crewspec"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
@@ -138,6 +139,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pyyaml" },
 ]

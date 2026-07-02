@@ -42,6 +42,40 @@ from crewspec.parser.registry import (
 _SKILL_EXTRA_DIRS = ("references", "scripts", "assets")
 
 
+def resolve_crewfile(path: str | Path) -> Path:
+    """Resolve ``path`` to a concrete crewfile on disk.
+
+    ``path`` may be a crewfile itself or a directory containing one. A directory
+    prefers ``crewspec.yaml`` (the composition superset), falling back to a single
+    ``*.crewfile``. Raises :class:`MissingArtifactError` when the path does not
+    exist, a directory holds no crewfile, or it holds several ``*.crewfile`` with
+    no ``crewspec.yaml`` to disambiguate.
+    """
+
+    target = Path(path)
+    if target.is_file():
+        return target
+    if not target.is_dir():
+        raise MissingArtifactError("path does not exist", path=target)
+
+    canonical = target / "crewspec.yaml"
+    if canonical.is_file():
+        return canonical
+
+    crewfiles = sorted(target.glob("*.crewfile"))
+    if len(crewfiles) == 1:
+        return crewfiles[0]
+    if not crewfiles:
+        raise MissingArtifactError(
+            "directory contains no crewspec.yaml or *.crewfile", path=target
+        )
+    names = ", ".join(p.name for p in crewfiles)
+    raise MissingArtifactError(
+        f"directory contains multiple crewfiles ({names}); pass one explicitly",
+        path=target,
+    )
+
+
 def load_crewfile(path: str | Path) -> LoadedCrew:
     """Load and validate the crewfile at ``path``.
 

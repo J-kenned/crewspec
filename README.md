@@ -6,8 +6,8 @@
 its definitions from a single CLI. It resolves agent packs, builds an
 intermediate representation, and emits target-specific artifacts.
 
-> **Status:** pre-1.0, under active development. The CLI surface below is the
-> intended shape; most subcommands are not done.
+> **Status:** pre-1.0, under active development. `install` is the first
+> end-to-end command; the remaining subcommands are still in progress.
 
 ## Install
 
@@ -17,15 +17,21 @@ pip install crewspec
 
 ## Quickstart
 
+Install a crewfile (or a directory containing one) into a target runtime. The
+default target is `claude`, which emits a self-contained Claude Code plugin under
+`<out>/.claude/skills/crewspec/`:
+
 ```bash
-crewspec --help
+crewspec install ./my-crew --target claude --out .
 ```
 
+Use `--dry-run` to parse and resolve without writing any artifacts:
+
+```bash
+crewspec install ./my-crew --dry-run
 ```
-Usage:
-  crewspec install <pack>              Install an agent pack
-  crewspec list                        List installed packs
-```
+
+Run `crewspec --help` or `crewspec install --help` for the full option list.
 
 ## Secrets
 
