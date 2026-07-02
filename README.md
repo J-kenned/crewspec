@@ -1,13 +1,22 @@
 # crewspec
 
-> Declarative spec and runtime for composable AI agents and teams.
+> Declarative spec and transpiler for portable, composable AI agents.
 
-`crewspec` lets you describe an agent crew declaratively and install and manage
-its definitions from a single CLI. It resolves agent packs, builds an
-intermediate representation, and emits target-specific artifacts.
+`crewspec` describes an agent crew declaratively and compiles it into a target
+tool's native format from a single CLI. It **defines** agents, skills, and their
+MCP dependencies — it does not run them. It resolves a pack into a
+target-agnostic intermediate representation and emits target-specific artifacts
+(Claude Code today; other targets later).
 
-> **Status:** pre-1.0, under active development. `install` is the first
-> end-to-end command; the remaining subcommands are still in progress.
+The value is the manifest: native formats like `SKILL.md` can't express
+cross-capability dependencies (a skill has no way to say *"I need the `github`
+MCP"*). crewspec records those edges — agent→skill, skill→skill, skill→MCP —
+then resolves them transitively, deduplicates, detects conflicts, and emits each
+target's native wiring.
+
+> **Status:** pre-1.0, under active development. `install` and `validate` are
+> the first end-to-end commands; composition and remote packs are still to come
+> (see [Not in V1](#not-in-v1)).
 
 ## Install
 
@@ -17,8 +26,8 @@ pip install crewspec
 
 ## Quickstart
 
-Install a crewfile (or a directory containing one) into a target runtime. The
-default target is `claude`, which emits a self-contained Claude Code plugin under
+Install a crewfile (or a directory containing one) for a target. The default
+target is `claude`, which emits a self-contained Claude Code plugin under
 `<out>/.claude/skills/crewspec/`. The repo ships a runnable example — a
 one-agent code-review crew whose two skills share a `github` MCP:
 
@@ -30,13 +39,48 @@ See [`examples/code-review-crew`](examples/code-review-crew) for the full pack:
 a `.crewfile`, an agent persona, and skills whose dependencies are declared in
 their `SKILL.md` frontmatter.
 
-Use `--dry-run` to parse and resolve without writing any artifacts:
+Use `--dry-run` to parse and resolve without writing any artifacts, or
+`validate` to print the resolved plan:
 
 ```bash
 crewspec install ./examples/code-review-crew --dry-run
+crewspec validate ./examples/code-review-crew
 ```
 
-Run `crewspec --help` or `crewspec install --help` for the full option list.
+## The file model
+
+crewspec has **one schema and one parser**, used in two conventional files:
+
+| File           | Role                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `*.crewfile`   | The portable **unit** — one agent or pack. A thin manifest: persona and skill *pointers*, dependency edges, and inline MCP launch configs. No content lives here.           |
+| `crewspec.yaml`| The **composition** superset — the same vocabulary plus `include:` and `crew:` to templatise a whole multi-agent setup. *(0.2 — see [Not in V1](#not-in-v1))*               |
+
+crewspec is a *thin manifest* that rides open standards: skill bodies live in
+their own `SKILL.md` directories (the Agent Skills standard), personas in plain
+markdown, and MCP servers as launch configs. The manifest only **references and
+wires** them. A skill declares its own dependencies in its
+`SKILL.md` frontmatter under an `x-crewspec:` key that other tools ignore, so the
+skill stays portable across crews:
+
+```yaml
+# skills/code-review/SKILL.md frontmatter
+x-crewspec:
+  skills: [test-analysis]
+  mcps: [github]
+```
+
+## CLI
+
+| Command                    | What it does                                                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crewspec install SOURCE`  | Parse, resolve, and emit artifacts for `--target` (default `claude`) into `--out` (default `.`). `--dry-run` stops before writing.                |
+| `crewspec validate SOURCE` | Parse and resolve only; print the resolved plan — per-agent capabilities, the deduplicated MCP set, and any warnings. `--json` for scripts. Writes nothing. |
+| `crewspec list`            | List installed packs. *(not yet implemented)*                                                                                                    |
+
+`SOURCE` is a local `.crewfile` / `crewspec.yaml` (or a directory containing
+one) or a `github:` shorthand (below). Run `crewspec --help` or
+`crewspec <command> --help` for the full option list.
 
 ## Install from GitHub
 
@@ -78,6 +122,32 @@ Resolution validates the backing secret (missing, unreadable, or
 group/other-readable files are errors) and substitutes a runtime *pointer* —
 the value itself is never written into the resolved spec or artifact. Networked
 secret stores (Vault, cloud managers) are a later affordance.
+
+## Design & rationale
+
+Two companion design docs back this repo:
+
+- **[crewspec — Spec & Design](https://linear.app/kenned/document/crewspec-spec-and-design-959937905db9)**
+  — the format and CLI spec.
+- **[crewspec — Product Use Cases & Design Decisions](https://linear.app/kenned/document/crewspec-product-use-cases-and-design-decisions-a766eb8b8d0d)**
+  — the use cases (UC1–UC3) and the locked design decisions and rationale behind
+  V1.
+
+## Not in V1
+
+V1 is the single-agent install to Claude Code (UC1). Deliberately out of scope
+for now, so contributors know what's intentional rather than missing:
+
+- **Composition** — the `crewspec.yaml` `include:` / `crew:` superset that
+  composes multiple crewfiles into one deduplicated setup *(0.2)*.
+- **`crewspec add`** — pull a remote pack into the manifest; distinct from
+  `install`, which emits artifacts *(0.2)*.
+- **Kiro emitter** — a second `--target`; the emitter interface is already
+  pluggable so it slots in without touching the pipeline *(0.2)*.
+- **`plugin.json` bundle mode** — V1 emits raw `.claude/` files; a
+  packaged-plugin (marketplace) emission mode is a follow-up.
+- **`--resolve-ai`** — natural-language, AI-assisted install; a separate feature
+  from `--target`, not the overloaded `--claude` of earlier drafts *(0.2.x)*.
 
 ## Development
 
