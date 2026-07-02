@@ -1,0 +1,35 @@
+version: "0.1"
+
+# A single-agent code-review crew. The reviewer depends on one skill;
+# everything else — the transitive skill and the shared MCP — is pulled in
+# through each skill's SKILL.md `x-crewspec` frontmatter (the dependency floor).
+agents:
+  reviewer:
+    name: reviewer
+    persona: agents/reviewer.md
+    allowed_tools: [Read, Grep, Bash]
+    depends_on:
+      skills: [code-review]
+
+# Skills are registered here with just a name and path; their dependencies live
+# in each skill's frontmatter so the skill stays portable across crews.
+skills:
+  code-review:
+    name: code-review
+    path: skills/code-review
+    description: Review a pull request for correctness, style, and risk
+  test-analysis:
+    name: test-analysis
+    path: skills/test-analysis
+    description: Assess test coverage and surface gaps
+
+# One MCP, depended on by both skills. The resolver dedups it to a single entry
+# in the emitted plugin. The token is kept out of the spec via a secret
+# reference; the launcher injects GITHUB_TOKEN at runtime.
+mcps:
+  github:
+    type: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${secret:GITHUB_TOKEN}"

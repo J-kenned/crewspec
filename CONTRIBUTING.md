@@ -35,6 +35,20 @@ To run every pre-commit hook against the whole tree exactly as CI does:
 uv run pre-commit run --all-files
 ```
 
+## Golden fixtures
+
+`tests/test_golden_e2e.py` installs the example pack in `examples/code-review-crew`
+and locks the emitted plugin tree, byte for byte, against the checked-in golden
+under `tests/golden/code-review-crew`. After an **intentional** change to the
+emitted format, regenerate the golden and review the diff before committing:
+
+```bash
+UPDATE_GOLDEN=1 uv run pytest tests/test_golden_e2e.py
+```
+
+This rewrites the golden tree from the freshly emitted output and then asserts.
+Without `UPDATE_GOLDEN`, the test only compares — an unexpected diff is a failure.
+
 ## Conventions
 
 - **Line length is 88** (black + ruff).

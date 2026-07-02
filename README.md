@@ -19,16 +19,21 @@ pip install crewspec
 
 Install a crewfile (or a directory containing one) into a target runtime. The
 default target is `claude`, which emits a self-contained Claude Code plugin under
-`<out>/.claude/skills/crewspec/`:
+`<out>/.claude/skills/crewspec/`. The repo ships a runnable example — a
+one-agent code-review crew whose two skills share a `github` MCP:
 
 ```bash
-crewspec install ./my-crew --target claude --out .
+crewspec install ./examples/code-review-crew --target claude --out .
 ```
+
+See [`examples/code-review-crew`](examples/code-review-crew) for the full pack:
+a `.crewfile`, an agent persona, and skills whose dependencies are declared in
+their `SKILL.md` frontmatter.
 
 Use `--dry-run` to parse and resolve without writing any artifacts:
 
 ```bash
-crewspec install ./my-crew --dry-run
+crewspec install ./examples/code-review-crew --dry-run
 ```
 
 Run `crewspec --help` or `crewspec install --help` for the full option list.
