@@ -26,6 +26,10 @@ from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
 
+#: VCS/OS cruft never worth copying into a skill's emitted tree. ``.git`` in
+#: particular can be enormous and would embed a nested repo in the plugin.
+_SKILL_COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".DS_Store")
+
 
 class ClaudeEmitter(Emitter):
     """Render the crewspec IR into a Claude Code plugin under ``dest``."""
@@ -117,10 +121,12 @@ class ClaudeEmitter(Emitter):
 
         for skill in skills.values():
             dest_dir = plugin_root / "skills" / skill.name
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(skill.skill_md, dest_dir / "SKILL.md")
-            for extra in skill.extra_dirs:
-                shutil.copytree(extra, dest_dir / extra.name)
+            # A skill *is* its directory: copy the whole tree so nothing the
+            # SKILL.md references (reference docs, scripts, data, fonts, a
+            # LICENSE, ...) is left behind — only VCS/OS junk is dropped.
+            # plugin_root was just wiped, so dest_dir cannot pre-exist.
+            shutil.copytree(skill.path, dest_dir, ignore=_SKILL_COPY_IGNORE)
+            _normalize_skill_md(dest_dir)
 
     def _write_mcp(self, plugin_root: Path, mcps: tuple[ResolvedMcp, ...]) -> None:
         if not mcps:
@@ -138,6 +144,22 @@ class ClaudeEmitter(Emitter):
 
         path = plugin_root / ".mcp.json"
         path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")
+
+
+def _normalize_skill_md(skill_dir: Path) -> None:
+    """Rename a case-variant ``skill.md`` to the canonical ``SKILL.md``.
+
+    crewspec resolves skills case-insensitively on macOS, so a source skill may
+    carry a lowercase ``skill.md``. A case-sensitive host (Linux CI, a cloned
+    repo) needs the exact name, so normalise it on emit to keep the plugin
+    portable. A dir that already has ``SKILL.md`` is left untouched.
+    """
+
+    canonical = skill_dir / "SKILL.md"
+    for child in skill_dir.iterdir():
+        if child.name != "SKILL.md" and child.name.lower() == "skill.md":
+            child.rename(canonical)
+            return
 
 
 def _split_frontmatter(text: str) -> tuple[dict[str, object] | None, str]:

@@ -48,7 +48,6 @@ def _skill(
     *,
     skills: Iterable[str] = (),
     mcps: Iterable[str] = (),
-    extra_dirs: Iterable[str] = (),
     description: str | None = None,
 ) -> SkillNode:
     root = Path(f"skills/{name}")
@@ -57,7 +56,6 @@ def _skill(
         root=root,
         skill_md=root / "SKILL.md",
         deps=SkillDeps(skills=list(skills), mcps=list(mcps)),
-        extra_dirs=tuple(root / sub for sub in extra_dirs),
     )
 
 
@@ -204,9 +202,7 @@ def test_serialization_round_trips() -> None:
     registry = _registry(
         agents=[_agent("reviewer", skills=["lint"], mcps=["github"], tools=["Read"])],
         skills=[
-            _skill(
-                "lint", skills=["format"], mcps=["github"], extra_dirs=["references"]
-            ),
+            _skill("lint", skills=["format"], mcps=["github"]),
             _skill("format", description="Format the code"),
         ],
         mcps={"github": StdioMcpServer(command="gh-mcp", args=["serve"])},
@@ -238,16 +234,13 @@ def test_empty_registry_resolves_to_empty_ir() -> None:
 def test_resolved_skill_carries_artifacts() -> None:
     registry = _registry(
         agents=[_agent("a", skills=["lint"])],
-        skills=[
-            _skill("lint", extra_dirs=["references"], description="Run the linter")
-        ],
+        skills=[_skill("lint", description="Run the linter")],
     )
 
     skill = resolve(registry).agents[0].skills[0]
 
     assert skill.path == Path("skills/lint")
     assert skill.skill_md == Path("skills/lint/SKILL.md")
-    assert skill.extra_dirs == (Path("skills/lint/references"),)
     assert skill.description == "Run the linter"
 
 

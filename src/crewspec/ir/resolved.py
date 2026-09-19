@@ -31,10 +31,11 @@ class ResolvedMcp(BaseModel):
 class ResolvedSkill(BaseModel):
     """A skill flattened to the artifacts an emitter copies.
 
-    ``path`` is the skill root; ``extra_dirs`` are the
-    ``references/``/``scripts/``/``assets/`` subdirectories that exist under it.
-    Paths are carried from the loader (resolved against the crewfile
-    root), normalising them for portable output is the emitter's concern.
+    ``path`` is the skill root — a skill *is* its directory, so an emitter copies
+    the whole tree (minus VCS/OS junk). ``skill_md`` locates the ``SKILL.md``
+    entry point within it. Paths are carried from the loader (resolved against
+    the crewfile root); normalising them for portable output is the emitter's
+    concern.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -42,7 +43,6 @@ class ResolvedSkill(BaseModel):
     name: str
     path: Path
     skill_md: Path
-    extra_dirs: tuple[Path, ...] = ()
     description: str | None = None
 
 

@@ -30,16 +30,15 @@ class AgentNode:
 class SkillNode:
     """A skill definition with its artifacts resolved and its deps merged.
 
-    ``deps`` is the merged set (frontmatter floor ∪ crewfile); ``extra_dirs``
-    lists the ``references/``/``scripts/``/``assets/`` subdirectories that exist
-    under the skill root, for the emitter to copy.
+    ``deps`` is the merged set (frontmatter floor ∪ crewfile). ``root`` is the
+    skill directory the emitter copies whole; ``skill_md`` is its ``SKILL.md``
+    entry point.
     """
 
     definition: SkillDef
     root: Path
     skill_md: Path
     deps: SkillDeps
-    extra_dirs: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)

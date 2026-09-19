@@ -44,19 +44,12 @@ def _skill(
         f"---\nname: {name}\ndescription: A {name} skill\n---\n\n# {name}\n"
     )
 
-    extra_dirs: list[Path] = []
     for subdir, contents in (extra or {}).items():
         sub = root / subdir
         sub.mkdir(parents=True, exist_ok=True)
         (sub / "file.md").write_text(contents)
-        extra_dirs.append(sub)
 
-    return ResolvedSkill(
-        name=name,
-        path=root,
-        skill_md=skill_md,
-        extra_dirs=tuple(extra_dirs),
-    )
+    return ResolvedSkill(name=name, path=root, skill_md=skill_md)
 
 
 def _mcp(name: str, server: McpServer) -> ResolvedMcp:
@@ -209,6 +202,70 @@ def test_skill_copied_with_extra_dirs(tmp_path: Path) -> None:
     assert (skill_dir / "SKILL.md").read_text() == skill.skill_md.read_text()
     assert (skill_dir / "references" / "file.md").read_text() == "see this"
     assert (skill_dir / "scripts" / "file.md").read_text() == "run"
+
+
+def test_skill_copies_whole_directory_not_just_standard_subdirs(
+    tmp_path: Path,
+) -> None:
+    # A skill *is* its directory: loose files and non-standard subdirs survive.
+    skill = _skill(tmp_path, "lint")
+    (skill.path / "LICENSE.txt").write_text("MIT")
+    (skill.path / "reference.md").write_text("# ref")
+    (skill.path / "data").mkdir()
+    (skill.path / "data" / "table.json").write_text("{}")
+
+    persona = _persona(tmp_path, "a", description="An agent", body="# A\n")
+    ir = ResolvedIR(
+        agents=(ResolvedAgent(name="a", persona_path=persona, skills=(skill,)),),
+    )
+
+    skill_dir = _emit(tmp_path, ir) / "skills" / "lint"
+    assert (skill_dir / "LICENSE.txt").read_text() == "MIT"
+    assert (skill_dir / "reference.md").read_text() == "# ref"
+    assert (skill_dir / "data" / "table.json").read_text() == "{}"
+
+
+def test_skill_copy_drops_vcs_and_cache_junk(tmp_path: Path) -> None:
+    skill = _skill(tmp_path, "lint")
+    (skill.path / ".git").mkdir()
+    (skill.path / ".git" / "config").write_text("[core]\n")
+    (skill.path / "__pycache__").mkdir()
+    (skill.path / "__pycache__" / "m.cpython-312.pyc").write_text("x")
+    (skill.path / "run.pyc").write_text("x")
+    (skill.path / ".DS_Store").write_text("x")
+
+    persona = _persona(tmp_path, "a", description="A", body="# A\n")
+    ir = ResolvedIR(
+        agents=(ResolvedAgent(name="a", persona_path=persona, skills=(skill,)),),
+    )
+
+    skill_dir = _emit(tmp_path, ir) / "skills" / "lint"
+    assert (skill_dir / "SKILL.md").is_file()
+    assert not (skill_dir / ".git").exists()
+    assert not (skill_dir / "__pycache__").exists()
+    assert not (skill_dir / "run.pyc").exists()
+    assert not (skill_dir / ".DS_Store").exists()
+
+
+def test_lowercase_skill_md_normalized_on_emit(tmp_path: Path) -> None:
+    # A source cased as skill.md (valid on macOS) must emit as SKILL.md so the
+    # plugin loads on a case-sensitive host.
+    root = tmp_path / "src" / "skills" / "lower"
+    root.mkdir(parents=True)
+    (root / "skill.md").write_text(
+        "---\nname: lower\ndescription: A lower skill\n---\n\n# lower\n"
+    )
+    skill = ResolvedSkill(name="lower", path=root, skill_md=root / "SKILL.md")
+
+    persona = _persona(tmp_path, "a", description="A", body="# A\n")
+    ir = ResolvedIR(
+        agents=(ResolvedAgent(name="a", persona_path=persona, skills=(skill,)),),
+    )
+
+    skill_dir = _emit(tmp_path, ir) / "skills" / "lower"
+    names = [p.name for p in skill_dir.iterdir()]
+    assert "SKILL.md" in names
+    assert "skill.md" not in names
 
 
 def test_shared_skill_copied_once(tmp_path: Path) -> None:

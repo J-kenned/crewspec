@@ -191,6 +191,5 @@ def _to_resolved_skill(name: str, node: SkillNode) -> ResolvedSkill:
         name=name,
         path=node.root,
         skill_md=node.skill_md,
-        extra_dirs=node.extra_dirs,
         description=node.definition.description,
     )

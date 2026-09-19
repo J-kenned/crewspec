@@ -17,6 +17,7 @@ from crewspec.ir import ResolvedIR
 
 FIXTURE = Path(__file__).parent / "fixtures" / "happy"
 PLUGIN = (".claude", "skills", "crewspec")
+CODEX_PLUGIN = ("plugins", "crewspec")
 
 
 def _run(*args: str) -> Result:
@@ -60,6 +61,24 @@ def test_install_accepts_a_direct_crewfile(tmp_path: Path) -> None:
     assert (tmp_path.joinpath(*PLUGIN) / "agents" / "reviewer.md").is_file()
 
 
+def test_install_accepts_codex_target(tmp_path: Path) -> None:
+    result = _run(
+        "install",
+        str(FIXTURE),
+        "--target",
+        "codex",
+        "--out",
+        str(tmp_path),
+    )
+
+    assert result.exit_code == 0, result.output
+    root = tmp_path.joinpath(*CODEX_PLUGIN)
+    assert (root / ".codex-plugin" / "plugin.json").is_file()
+    assert (root / "skills" / "reviewer" / "SKILL.md").is_file()
+    assert (root / "skills" / "lint" / "SKILL.md").is_file()
+    assert (tmp_path / ".agents" / "plugins" / "marketplace.json").is_file()
+
+
 def test_out_directory_is_created_when_missing(tmp_path: Path) -> None:
     out = tmp_path / "nested" / "dest"
     result = _run("install", str(FIXTURE), "--out", str(out))
@@ -82,6 +101,7 @@ def test_unknown_target_errors_and_lists_supported(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "claude" in result.stderr
+    assert "codex" in result.stderr
 
 
 def test_missing_path_errors(tmp_path: Path) -> None:

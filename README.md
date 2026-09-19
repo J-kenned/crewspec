@@ -6,7 +6,7 @@
 tool's native format from a single CLI. It **defines** agents, skills, and their
 MCP dependencies — it does not run them. It resolves a pack into a
 target-agnostic intermediate representation and emits target-specific artifacts
-(Claude Code today; other targets later).
+(Claude Code and Codex today; other targets later).
 
 The value is the manifest: native formats like `SKILL.md` can't express
 cross-capability dependencies (a skill has no way to say *"I need the `github`
@@ -28,11 +28,15 @@ pip install crewspec
 
 Install a crewfile (or a directory containing one) for a target. The default
 target is `claude`, which emits a self-contained Claude Code plugin under
-`<out>/.claude/skills/crewspec/`. The repo ships a runnable example — a
-one-agent code-review crew whose two skills share a `github` MCP:
+`<out>/.claude/skills/crewspec/`. The repo also supports `--target codex`, which
+emits a repo-local Codex plugin under `<out>/plugins/crewspec/` and a local
+marketplace entry at `<out>/.agents/plugins/marketplace.json`. The repo ships a
+runnable example — a one-agent code-review crew whose two skills share a
+`github` MCP:
 
 ```bash
 crewspec install ./examples/code-review-crew --target claude --out .
+crewspec install ./examples/code-review-crew --target codex --out .
 ```
 
 See [`examples/code-review-crew`](examples/code-review-crew) for the full pack:
@@ -142,10 +146,8 @@ for now, so contributors know what's intentional rather than missing:
   composes multiple crewfiles into one deduplicated setup *(0.2)*.
 - **`crewspec add`** — pull a remote pack into the manifest; distinct from
   `install`, which emits artifacts *(0.2)*.
-- **Kiro emitter** — a second `--target`; the emitter interface is already
+- **Kiro emitter** — another `--target`; the emitter interface is already
   pluggable so it slots in without touching the pipeline *(0.2)*.
-- **`plugin.json` bundle mode** — V1 emits raw `.claude/` files; a
-  packaged-plugin (marketplace) emission mode is a follow-up.
 - **`--resolve-ai`** — natural-language, AI-assisted install; a separate feature
   from `--target`, not the overloaded `--claude` of earlier drafts *(0.2.x)*.
 

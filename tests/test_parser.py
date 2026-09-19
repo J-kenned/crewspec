@@ -75,9 +75,8 @@ def test_happy_path_resolves_artifact_paths() -> None:
         crew.registry.agents["reviewer"].persona == HAPPY.parent / "agents/reviewer.md"
     )
     lint = crew.registry.skills["lint"]
+    assert lint.root == HAPPY.parent / "skills/lint"
     assert lint.skill_md == HAPPY.parent / "skills/lint/SKILL.md"
-    assert lint.extra_dirs == (HAPPY.parent / "skills/lint/references",)
-    assert crew.registry.skills["format"].extra_dirs == ()
 
 
 def test_include_is_parsed_but_not_followed(tmp_path: Path) -> None:

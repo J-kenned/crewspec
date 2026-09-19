@@ -38,9 +38,6 @@ from crewspec.parser.registry import (
     SkillNode,
 )
 
-#: Skill subdirectories the emitter copies verbatim when present.
-_SKILL_EXTRA_DIRS = ("references", "scripts", "assets")
-
 
 def resolve_crewfile(path: str | Path) -> Path:
     """Resolve ``path`` to a concrete crewfile on disk.
@@ -164,11 +161,6 @@ def _load_skills(doc: CrewDoc, root: Path, crewfile: Path) -> dict[str, SkillNod
             root=skill_dir,
             skill_md=skill_md,
             deps=_merge_skill_deps(skill, frontmatter),
-            extra_dirs=tuple(
-                skill_dir / sub
-                for sub in _SKILL_EXTRA_DIRS
-                if (skill_dir / sub).is_dir()
-            ),
         )
     return skills
 
