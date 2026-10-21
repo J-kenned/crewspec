@@ -18,9 +18,9 @@ PyPI publishing is pending. The `crewspec` versions on PyPI today are
 placeholders with no working commands. Install from source instead:
 
 ```bash
-uv tool install git+https://github.com/J-kenned/crewspec@feature/setup
+uv tool install git+https://github.com/J-kenned/crewspec
 # or
-pip install git+https://github.com/J-kenned/crewspec@feature/setup
+pip install git+https://github.com/J-kenned/crewspec
 ```
 
 Requires Python 3.12 or later.
@@ -107,12 +107,14 @@ The pack is downloaded over HTTPS as a `tar.gz` from codeload.github.com. No
 `git` is needed. `@ref` is a branch, tag, or commit SHA (default: the repo's
 default branch). `/subdir` selects a pack inside the repo.
 
-The example pack is not on `main` yet, and the shorthand cannot address a
-branch name containing `/`. Pin the commit instead:
+To try it on the example pack in this repo:
 
 ```bash
-crewspec install github:J-kenned/crewspec@1cd6ac4/examples/code-review-crew --dry-run
+crewspec install github:J-kenned/crewspec/examples/code-review-crew --dry-run
 ```
+
+The shorthand cannot address a branch name containing `/`; pin a commit SHA
+instead.
 
 Limits today: public repositories only, and no lockfile.
 
