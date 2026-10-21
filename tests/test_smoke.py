@@ -7,7 +7,7 @@ from crewspec.cli import cli
 
 
 def test_package_imports() -> None:
-    assert crewspec.__version__ == "0.1.0"
+    assert crewspec.__version__ == "0.1.1"
 
 
 def test_cli_help_prints_usage() -> None:

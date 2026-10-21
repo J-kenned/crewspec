@@ -32,7 +32,6 @@ def _agent(
 ) -> AgentNode:
     return AgentNode(
         definition=AgentDef(
-            name=name,
             persona=f"agents/{name}.md",
             allowed_tools=list(tools),
             depends_on=AgentDeps(
@@ -48,11 +47,10 @@ def _skill(
     *,
     skills: Iterable[str] = (),
     mcps: Iterable[str] = (),
-    description: str | None = None,
 ) -> SkillNode:
     root = Path(f"skills/{name}")
     return SkillNode(
-        definition=SkillDef(name=name, path=f"skills/{name}", description=description),
+        definition=SkillDef(path=f"skills/{name}"),
         root=root,
         skill_md=root / "SKILL.md",
         deps=SkillDeps(skills=list(skills), mcps=list(mcps)),
@@ -65,9 +63,10 @@ def _registry(
     skills: Iterable[SkillNode] = (),
     mcps: dict[str, McpServer] | None = None,
 ) -> NodeRegistry:
+    # The node's identity is its map key; the helpers encode it in the path.
     return NodeRegistry(
-        agents={a.definition.name: a for a in agents},
-        skills={s.definition.name: s for s in skills},
+        agents={a.persona.stem: a for a in agents},
+        skills={s.root.name: s for s in skills},
         mcps=mcps or {},
     )
 
@@ -203,7 +202,7 @@ def test_serialization_round_trips() -> None:
         agents=[_agent("reviewer", skills=["lint"], mcps=["github"], tools=["Read"])],
         skills=[
             _skill("lint", skills=["format"], mcps=["github"]),
-            _skill("format", description="Format the code"),
+            _skill("format"),
         ],
         mcps={"github": StdioMcpServer(command="gh-mcp", args=["serve"])},
     )
@@ -234,14 +233,13 @@ def test_empty_registry_resolves_to_empty_ir() -> None:
 def test_resolved_skill_carries_artifacts() -> None:
     registry = _registry(
         agents=[_agent("a", skills=["lint"])],
-        skills=[_skill("lint", description="Run the linter")],
+        skills=[_skill("lint")],
     )
 
     skill = resolve(registry).agents[0].skills[0]
 
     assert skill.path == Path("skills/lint")
     assert skill.skill_md == Path("skills/lint/SKILL.md")
-    assert skill.description == "Run the linter"
 
 
 def test_cycle_path_starts_at_entry_not_dfs_root() -> None:

@@ -87,6 +87,20 @@ def test_out_directory_is_created_when_missing(tmp_path: Path) -> None:
     assert out.joinpath(*PLUGIN, "agents", "reviewer.md").is_file()
 
 
+def test_agent_map_key_names_the_emitted_agent_file(tmp_path: Path) -> None:
+    # The persona file is deliberately not called reviewer.md: only the agent's
+    # map key can produce agents/reviewer.md.
+    (tmp_path / "persona.md").write_text("---\ndescription: r\n---\n\nbody\n")
+    (tmp_path / "team.crewfile").write_text(
+        'version: "0.1"\nagents:\n  reviewer:\n    persona: persona.md\n'
+    )
+    out = tmp_path / "out"
+    result = _run("install", str(tmp_path / "team.crewfile"), "--out", str(out))
+
+    assert result.exit_code == 0, result.output
+    assert out.joinpath(*PLUGIN, "agents", "reviewer.md").is_file()
+
+
 def test_dry_run_resolves_but_writes_nothing(tmp_path: Path) -> None:
     result = _run("install", str(FIXTURE), "--out", str(tmp_path), "--dry-run")
 
@@ -194,11 +208,10 @@ def _write_cycle_crew(root: Path) -> None:
         'version: "0.1"\n'
         "agents:\n"
         "  a:\n"
-        "    name: a\n"
         "    persona: agent.md\n"
         "    depends_on:\n"
         "      skills: [s1]\n"
         "skills:\n"
-        "  s1:\n    name: s1\n    path: s1\n"
-        "  s2:\n    name: s2\n    path: s2\n"
+        "  s1:\n    path: s1\n"
+        "  s2:\n    path: s2\n"
     )

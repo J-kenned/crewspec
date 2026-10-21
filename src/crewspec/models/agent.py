@@ -12,7 +12,6 @@ class AgentDef(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str
     persona: str
     # Light passthrough: tool names (Read, Edit, Bash, mcp patterns) evolve per
     # target, so they are kept as free-form strings rather than constrained.

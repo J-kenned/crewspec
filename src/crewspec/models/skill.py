@@ -12,9 +12,7 @@ class SkillDef(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str
     path: str
-    description: str | None = None
     depends_on: SkillDeps = Field(default_factory=SkillDeps)
 
 

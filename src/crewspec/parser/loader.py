@@ -11,7 +11,8 @@ are the union of its frontmatter deps and its crewfile deps (frontmatter first,
 deduplicated); the crewfile may add deps but cannot drop one the skill author
 declared.
 
-``crewspec.yaml``'s ``include`` is parsed onto :attr:`CrewDoc.include`
+``crewspec.yaml`` is accepted by file name only: its composition keys
+(``include``, ``crew``) are rejected by :class:`CrewDoc` until composition lands.
 """
 
 from __future__ import annotations

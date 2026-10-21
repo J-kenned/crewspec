@@ -64,12 +64,10 @@ def test_manifest_and_repo_marketplace_are_written(tmp_path: Path) -> None:
 
     root = _emit(tmp_path, ir)
     manifest = json.loads((root / ".codex-plugin" / "plugin.json").read_text())
-    marketplace = json.loads(
-        (tmp_path / "out").joinpath(*MARKETPLACE).read_text()
-    )
+    marketplace = json.loads((tmp_path / "out").joinpath(*MARKETPLACE).read_text())
 
     assert manifest["name"] == "crewspec"
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.1.1"
     assert manifest["skills"] == "./skills/"
     assert "mcpServers" not in manifest
     assert marketplace == {
@@ -218,9 +216,7 @@ def test_agent_skill_name_collision_raises(tmp_path: Path) -> None:
     persona = _persona(tmp_path, "lint", description="Lint agent", body="# L\n")
     skill = _skill(tmp_path, "lint")
     ir = ResolvedIR(
-        agents=(
-            ResolvedAgent(name="lint", persona_path=persona, skills=(skill,)),
-        ),
+        agents=(ResolvedAgent(name="lint", persona_path=persona, skills=(skill,)),),
     )
 
     with pytest.raises(EmitError, match="must not collide"):

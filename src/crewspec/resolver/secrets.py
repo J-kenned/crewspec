@@ -1,10 +1,16 @@
 """Mountable secret resolution for crewspec specs.
 
-Ordinary ``${VAR}`` interpolation inlines values straight into the generated
-artifact, which is fine for non-sensitive config but unsafe for API keys: an
-inlined value can leak through re-emitted specs, logs, or stack traces. The
-two reserved secret reference kinds avoid that by keeping the value *out* of
-the spec and artifact entirely.
+The CLI pipeline does not call this module. It is available for callers that
+want to resolve secret values locally. :func:`resolve_server` substitutes
+``${VAR}`` references from the given env mapping (the process environment
+when none is given) and turns each ``${secret:NAME}`` or ``${file:PATH}``
+reference into a runtime placeholder. It validates each secret but never
+copies the value into the result.
+
+The emitters take a different route and do not use this module. They copy
+``${VAR}`` unchanged, rewrite ``${secret:NAME}`` to ``${NAME}`` (or, for a
+lone Codex header secret, the bare name under ``env_http_headers``), and copy
+``${file:PATH}`` verbatim with a warning. The host tool expands them.
 
 Errors mirror the missing-env policy in
 :mod:`crewspec.models.interpolate`: a missing or unreadable secret is a

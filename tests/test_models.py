@@ -19,7 +19,6 @@ FULL_DOC = {
     "version": "0.1",
     "agents": {
         "reviewer": {
-            "name": "reviewer",
             "persona": "personas/reviewer.md",
             "allowed_tools": ["Read", "Edit", "mcp__linear__*"],
             "depends_on": {"skills": ["lint"], "mcps": ["github"]},
@@ -27,9 +26,7 @@ FULL_DOC = {
     },
     "skills": {
         "lint": {
-            "name": "lint",
             "path": "skills/lint",
-            "description": "Run the linter",
             "depends_on": {"skills": [], "mcps": ["github"]},
         }
     },
@@ -37,8 +34,6 @@ FULL_DOC = {
         "github": {"type": "stdio", "command": "gh-mcp", "args": ["serve"]},
         "remote": {"type": "http", "url": "https://api.example.com"},
     },
-    "include": ["base.crewfile"],
-    "crew": {"team": {"members": ["reviewer"]}},
 }
 
 
@@ -49,8 +44,6 @@ def test_full_doc_parses() -> None:
     assert isinstance(doc.mcps["remote"], HttpMcpServer)
     assert doc.agents["reviewer"].depends_on.skills == ["lint"]
     assert doc.skills["lint"].depends_on.mcps == ["github"]
-    assert doc.include == ["base.crewfile"]
-    assert doc.crew == {"team": {"members": ["reviewer"]}}
 
 
 def test_minimal_doc_defaults() -> None:
@@ -58,8 +51,6 @@ def test_minimal_doc_defaults() -> None:
     assert doc.agents == {}
     assert doc.skills == {}
     assert doc.mcps == {}
-    assert doc.include is None
-    assert doc.crew is None
 
 
 def test_mcp_discriminates_on_type() -> None:
@@ -97,7 +88,6 @@ def test_agent_depends_on_rejects_unknown_key() -> None:
     with pytest.raises(ValidationError) as exc:
         AgentDef.model_validate(
             {
-                "name": "a",
                 "persona": "p.md",
                 "depends_on": {"widgets": ["x"]},
             }
@@ -113,7 +103,6 @@ def test_skill_depends_on_has_no_agents_field() -> None:
                 "version": "0.1",
                 "skills": {
                     "s": {
-                        "name": "s",
                         "path": "skills/s",
                         "depends_on": {"agents": ["a"]},
                     }

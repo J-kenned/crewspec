@@ -5,9 +5,15 @@ ordered list of agents, each carrying its own transitive skill and MCP closure,
 plus the global deduplicated MCP set. It is the *contract* between resolution and
 emission serializable data with no behaviour and no IO.
 
-MCP configs are carried *unresolved* ``${...}`` references stay intact. Secret
-and environment substitution is a separate, IO-bearing concern handled by
-:mod:`crewspec.resolver.secrets` at emit time, never here.
+MCP configs are carried unresolved. ``${...}`` references stay intact and
+nothing here reads a secret or environment value. Emitters parse those
+references with :func:`crewspec.models.interpolate.parse_refs` and write them
+into the output for the host tool to expand. ``${VAR}`` is copied unchanged
+and ``${secret:NAME}`` becomes ``${NAME}`` (Codex writes a lone header secret
+as the bare name under ``env_http_headers``). ``${file:PATH}`` is copied
+verbatim with a warning. No emitter reads or writes a secret value.
+:mod:`crewspec.resolver.secrets` can resolve values locally, but the CLI
+pipeline does not call it.
 """
 
 from __future__ import annotations
@@ -43,7 +49,6 @@ class ResolvedSkill(BaseModel):
     name: str
     path: Path
     skill_md: Path
-    description: str | None = None
 
 
 class ResolvedAgent(BaseModel):

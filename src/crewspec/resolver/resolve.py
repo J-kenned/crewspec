@@ -187,9 +187,4 @@ def _dfs_order(
 
 
 def _to_resolved_skill(name: str, node: SkillNode) -> ResolvedSkill:
-    return ResolvedSkill(
-        name=name,
-        path=node.root,
-        skill_md=node.skill_md,
-        description=node.definition.description,
-    )
+    return ResolvedSkill(name=name, path=node.root, skill_md=node.skill_md)

@@ -22,6 +22,7 @@ from pathlib import Path
 
 import yaml
 
+from crewspec import __version__
 from crewspec.emitters.base import Emitter
 from crewspec.emitters.claude import (
     _SKILL_COPY_IGNORE,
@@ -69,7 +70,7 @@ class CodexEmitter(Emitter):
     def _write_manifest(self, plugin_root: Path, *, has_mcps: bool) -> None:
         manifest: dict[str, object] = {
             "name": self.plugin_name,
-            "version": "0.1.0",
+            "version": __version__,
             "description": "Generated crewspec workflows for Codex.",
             "skills": "./skills/",
             "interface": {

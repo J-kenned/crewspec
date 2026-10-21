@@ -44,11 +44,9 @@ def _build_min_crew(tmp_path: Path) -> Path:
 version: "0.1"
 agents:
   a:
-    name: a
     persona: agents/a.md
 skills:
   s:
-    name: s
     path: skills/s
 mcps:
   m:
@@ -79,14 +77,11 @@ def test_happy_path_resolves_artifact_paths() -> None:
     assert lint.skill_md == HAPPY.parent / "skills/lint/SKILL.md"
 
 
-def test_include_is_parsed_but_not_followed(tmp_path: Path) -> None:
-    crewfile = _write(
-        tmp_path / "crewspec.yaml",
-        'version: "0.1"\ninclude: [base.crewfile]\n',
-    )
-    crew = load_crewfile(crewfile)
-    assert crew.doc.include == ["base.crewfile"]
-    assert crew.registry.agents == {}
+@pytest.mark.parametrize("key", ["include", "crew"])
+def test_composition_keys_are_rejected(tmp_path: Path, key: str) -> None:
+    crewfile = _write(tmp_path / "crewspec.yaml", f'version: "0.1"\n{key}: [x]\n')
+    with pytest.raises(CrewfileSyntaxError, match=f"`{key}` is not supported"):
+        load_crewfile(crewfile)
 
 
 def test_merge_unions_frontmatter_and_crewfile_deps() -> None:
@@ -108,16 +103,13 @@ def test_merge_is_frontmatter_first_and_deduplicated(tmp_path: Path) -> None:
 version: "0.1"
 skills:
   s:
-    name: s
     path: skills/s
     depends_on:
       skills: [y, x]
       mcps: [q]
   x:
-    name: x
     path: skills/x
   y:
-    name: y
     path: skills/y
 mcps:
   p: {type: stdio, command: p}
@@ -190,7 +182,6 @@ def test_unknown_dependency_reference_raises(tmp_path: Path) -> None:
 version: "0.1"
 agents:
   a:
-    name: a
     persona: agents/a.md
     depends_on:
       mcps: [ghost]
