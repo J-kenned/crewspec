@@ -40,6 +40,7 @@ class ClaudeEmitter(Emitter):
     plugin_path = (".claude", "skills", "crewspec")
     #: The plugin's ``name`` (and namespace) in its ``plugin.json`` manifest.
     plugin_name = "crewspec"
+    mcp_file = ".mcp.json"
 
     def output_path(self, dest: Path) -> Path:
         """The plugin root under ``dest`` that crewspec owns and writes into."""
@@ -142,7 +143,7 @@ class ClaudeEmitter(Emitter):
                 stacklevel=2,
             )
 
-        path = plugin_root / ".mcp.json"
+        path = plugin_root / self.mcp_file
         path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")
 
 

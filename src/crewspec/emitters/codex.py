@@ -46,6 +46,7 @@ class CodexEmitter(Emitter):
     marketplace_path = (".agents", "plugins", "marketplace.json")
     #: The plugin's ``name`` in its ``plugin.json`` manifest.
     plugin_name = "crewspec"
+    mcp_file = ".mcp.json"
 
     def output_path(self, dest: Path) -> Path:
         """The plugin root under ``dest`` that crewspec owns and writes into."""
@@ -86,7 +87,7 @@ class CodexEmitter(Emitter):
             },
         }
         if has_mcps:
-            manifest["mcpServers"] = "./.mcp.json"
+            manifest["mcpServers"] = "./" + self.mcp_file
 
         path = plugin_root / ".codex-plugin" / "plugin.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,7 +153,7 @@ class CodexEmitter(Emitter):
                 stacklevel=2,
             )
 
-        path = plugin_root / ".mcp.json"
+        path = plugin_root / self.mcp_file
         path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")
 
     def _write_marketplace(self, dest: Path) -> None:

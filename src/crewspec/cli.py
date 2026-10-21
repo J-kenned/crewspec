@@ -9,13 +9,15 @@ it untouched.
 
 from __future__ import annotations
 
+import json
 import warnings
 from pathlib import Path
 
 import click
 
 from crewspec import __version__
-from crewspec.emitters import EMITTERS, EmitError
+from crewspec.emitters import EMITTERS, CodexEmitter, EmitError
+from crewspec.installed import InstalledPack, list_installed
 from crewspec.parser import CrewfileError, resolve_crewfile
 from crewspec.pipeline import InstallSummary, build_ir, install
 from crewspec.plan import render_json, render_tree
@@ -123,9 +125,58 @@ def validate_cmd(source: str, as_json: bool) -> None:
 
 
 @cli.command("list")
-def list_cmd() -> None:
-    """List installed packs."""
-    raise click.ClickException("list is not yet implemented")
+@click.option(
+    "--out",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("."),
+    show_default=True,
+    help="Directory crewspec installed into.",
+)
+@click.option(
+    "--target",
+    type=click.Choice(sorted(EMITTERS)),
+    default=None,
+    help="Report only this target. Default: every target with a pack installed.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Print the packs as a JSON array for scripted use.",
+)
+def list_cmd(out: Path, target: str | None, as_json: bool) -> None:
+    """List the crewspec packs installed under --out.
+
+    Reads the plugin trees ``install`` emitted and prints each target's plugin
+    path, agents, skills, and MCP servers. Nothing is resolved or written. An
+    empty listing is a valid answer and exits 0.
+    """
+
+    packs = list_installed(out, [target] if target else ())
+
+    # Warnings go to stderr in both modes so stdout stays a clean listing.
+    for pack in packs:
+        for message in pack.warnings:
+            click.echo(f"warning: {message}", err=True)
+
+    if as_json:
+        rows = [
+            {
+                "target": pack.target,
+                "path": pack.path.as_posix(),
+                "agents": list(pack.agents),
+                "skills": list(pack.skills),
+                "mcps": list(pack.mcps),
+            }
+            for pack in packs
+        ]
+        click.echo(json.dumps(rows, indent=2))
+    elif packs:
+        _echo_packs(packs)
+    elif target:
+        click.echo(f"No crewspec pack installed for {target} under {out}")
+    else:
+        click.echo(f"No crewspec packs installed under {out}")
 
 
 def _echo_summary(summary: InstallSummary, *, dry_run: bool) -> None:
@@ -138,6 +189,21 @@ def _echo_summary(summary: InstallSummary, *, dry_run: bool) -> None:
         f"skills: {summary.skills}   "
         f"mcps: {summary.mcps}"
     )
+
+
+def _echo_packs(packs: list[InstalledPack]) -> None:
+    width = max(len(pack.target) for pack in packs)
+    for pack in packs:
+        click.echo(f"{pack.target:<{width}}  {pack.path.as_posix()}")
+        skills = ", ".join(pack.skills) or "(none)"
+        if pack.target == CodexEmitter.name:
+            # Codex has no agents directory; the emitter folds each agent into
+            # a skill, so the agent-derived skills are listed with the rest.
+            click.echo(f"  skills: {skills}   (Codex agents are emitted as skills)")
+        else:
+            click.echo(f"  agents: {', '.join(pack.agents) or '(none)'}")
+            click.echo(f"  skills: {skills}")
+        click.echo(f"  mcps:   {', '.join(pack.mcps) or '(none)'}")
 
 
 def main() -> None:

@@ -15,6 +15,9 @@ class Emitter(ABC):
 
     #: Short, stable identifier for the emitter target (e.g. ``"claude"``).
     name: str
+    #: File name of the MCP server config written inside :meth:`output_path`.
+    #: Its top-level ``mcpServers`` object maps server name to launch config.
+    mcp_file: str
 
     @abstractmethod
     def emit(self, ir: ResolvedIR, dest: Path) -> None:

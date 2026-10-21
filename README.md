@@ -88,7 +88,7 @@ declares.
 | -------------------------- | ------------ |
 | `crewspec install SOURCE`  | Parse, resolve, and write artifacts. `--target` is `claude` (default) or `codex`. `--out DIR` defaults to `.`. `--dry-run` stops before writing. |
 | `crewspec validate SOURCE` | Parse and resolve, then print the resolved plan: each agent's tools, skills, and MCPs, the deduplicated MCP list, and any warnings. `--json` prints JSON instead. Writes nothing. |
-| `crewspec list`            | List installed packs. Not yet implemented. Exits with an error. |
+| `crewspec list`            | List the packs installed under `--out DIR` (default `.`): per target, the plugin path, agents, skills, and MCP servers. `--target` limits it to `claude` or `codex`. `--json` prints JSON instead. Writes nothing. |
 
 `SOURCE` is a `.crewfile`, a `crewspec.yaml`, a directory containing one, or a
 `github:` shorthand (below). A directory with a `crewspec.yaml` uses that file.
@@ -142,7 +142,6 @@ intentional:
 
 - Composition. `include:` and `crew:` in `crewspec.yaml` are rejected with an error.
 - `crewspec add`. Pull a remote pack into a manifest without emitting.
-- `crewspec list`. Defined but exits with "not yet implemented".
 - Kiro target. The emitter interface is pluggable, so it slots in later.
 - `--resolve-ai`. AI-assisted install.
 - Lockfile pinning for `github:` sources.
