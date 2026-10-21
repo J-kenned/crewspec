@@ -27,16 +27,13 @@ def _agent(
     *,
     skills: Iterable[str] = (),
     mcps: Iterable[str] = (),
-    agents: Iterable[str] = (),
     tools: Iterable[str] = (),
 ) -> AgentNode:
     return AgentNode(
         definition=AgentDef(
             persona=f"agents/{name}.md",
             allowed_tools=list(tools),
-            depends_on=AgentDeps(
-                skills=list(skills), mcps=list(mcps), agents=list(agents)
-            ),
+            depends_on=AgentDeps(skills=list(skills), mcps=list(mcps)),
         ),
         persona=Path(f"agents/{name}.md"),
     )
@@ -117,17 +114,6 @@ def test_skill_cycle_raises_with_path() -> None:
     assert exc.value.cycle == ["s1", "s2", "s1"]
 
 
-def test_agent_cycle_raises_with_path() -> None:
-    registry = _registry(
-        agents=[_agent("a1", agents=["a2"]), _agent("a2", agents=["a1"])],
-    )
-
-    with pytest.raises(CycleError, match="agent cycle detected") as exc:
-        resolve(registry)
-    assert exc.value.kind == "agent"
-    assert exc.value.cycle == ["a1", "a2", "a1"]
-
-
 def test_merge_mcps_dedups_identical_and_rejects_conflict() -> None:
     server = StdioMcpServer(command="serve")
     assert _names(
@@ -160,25 +146,6 @@ def test_deep_skill_chain_orders_leaf_first() -> None:
     assert _names(agent.skills) == ["s5", "s4", "s3", "s2", "s1"]
 
 
-def test_agent_edges_order_emission_without_polluting_closure() -> None:
-    registry = _registry(
-        agents=[
-            _agent("a1", skills=["s_a"], agents=["a2"]),
-            _agent("a2", skills=["s_b"]),
-        ],
-        skills=[_skill("s_a"), _skill("s_b")],
-    )
-
-    ir = resolve(registry)
-
-    # Depended-on agent is emitted first.
-    assert _names(ir.agents) == ["a2", "a1"]
-    a1 = next(a for a in ir.agents if a.name == "a1")
-    assert a1.requires_agents == ("a2",)
-    # a1's closure is its own skills only — a2's skill does not leak in.
-    assert _names(a1.skills) == ["s_a"]
-
-
 def test_global_mcp_set_unions_across_agents_in_order() -> None:
     registry = _registry(
         agents=[
@@ -194,6 +161,7 @@ def test_global_mcp_set_unions_across_agents_in_order() -> None:
 
     ir = resolve(registry)
 
+    assert _names(ir.agents) == ["a1", "a2"]  # crewfile map order
     assert _names(ir.mcps) == ["m1", "shared", "m2"]
 
 
@@ -222,7 +190,6 @@ def test_passthrough_and_empty_deps() -> None:
     assert agent.persona_path == Path("agents/solo.md")
     assert agent.skills == ()
     assert agent.mcps == ()
-    assert agent.requires_agents == ()
 
 
 def test_empty_registry_resolves_to_empty_ir() -> None:
@@ -270,38 +237,6 @@ def test_skill_self_loop_raises() -> None:
         resolve(registry)
     assert exc.value.kind == "skill"
     assert exc.value.cycle == ["s1", "s1"]
-
-
-def test_agent_self_loop_raises() -> None:
-    registry = _registry(agents=[_agent("a1", agents=["a1"])])
-
-    with pytest.raises(CycleError) as exc:
-        resolve(registry)
-    assert exc.value.kind == "agent"
-    assert exc.value.cycle == ["a1", "a1"]
-
-
-def test_agent_diamond_orders_shared_dep_once_without_leakage() -> None:
-    registry = _registry(
-        agents=[
-            _agent("root", skills=["s_root"], agents=["a2", "a3"]),
-            _agent("a2", skills=["s2"], agents=["a1"]),
-            _agent("a3", skills=["s3"], agents=["a1"]),
-            _agent("a1", skills=["s1"]),
-        ],
-        skills=[_skill("s_root"), _skill("s1"), _skill("s2"), _skill("s3")],
-    )
-
-    order = _names(resolve(registry).agents)
-
-    # Shared dependency a1 is emitted exactly once, before both dependents,
-    # which both precede the root.
-    assert order.count("a1") == 1
-    assert order.index("a1") < order.index("a2") < order.index("root")
-    assert order.index("a1") < order.index("a3") < order.index("root")
-    root = next(a for a in resolve(registry).agents if a.name == "root")
-    # Agent edges never widen a closure: root keeps only its own skill.
-    assert _names(root.skills) == ["s_root"]
 
 
 def test_per_agent_mcp_order_own_block_first_then_skills() -> None:

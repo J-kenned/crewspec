@@ -1,7 +1,7 @@
 """The resolved intermediate representation every emitter consumes.
 
-The resolver collapses the parsed node graph into this shape: a topologically
-ordered list of agents, each carrying its own transitive skill and MCP closure,
+The resolver collapses the parsed node graph into this shape: the agents in
+crewfile order, each carrying its own transitive skill and MCP closure,
 plus the global deduplicated MCP set. It is the *contract* between resolution and
 emission serializable data with no behaviour and no IO.
 
@@ -57,9 +57,7 @@ class ResolvedAgent(BaseModel):
     ``tools`` (the agent's ``allowed_tools`` grant list) and ``mcps`` (the
     resolved server configs) are kept deliberately **separate**: each emitter
     maps MCPs to its own tool-grant syntax. ``skills`` and ``mcps`` are
-    dependency-ordered and deduplicated. ``requires_agents`` records agent→agent
-    edges as a relationship only, they order emission but do not contribute to
-    this agent's skill or MCP closure.
+    dependency-ordered and deduplicated.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -69,13 +67,12 @@ class ResolvedAgent(BaseModel):
     tools: tuple[str, ...] = ()
     skills: tuple[ResolvedSkill, ...] = ()
     mcps: tuple[ResolvedMcp, ...] = ()
-    requires_agents: tuple[str, ...] = ()
 
 
 class ResolvedIR(BaseModel):
     """The whole crew resolved: ordered agents plus the global MCP set.
 
-    ``agents`` is topologically ordered (depended-on agents first). ``mcps`` is
+    ``agents`` is in crewfile declaration order. ``mcps`` is
     the union of every agent's MCP closure, deduplicated, in first-seen order,
     the single shared set a share-model emitter installs once.
     """

@@ -80,8 +80,14 @@ def test_happy_path_resolves_artifact_paths() -> None:
 @pytest.mark.parametrize("key", ["include", "crew"])
 def test_composition_keys_are_rejected(tmp_path: Path, key: str) -> None:
     crewfile = _write(tmp_path / "crewspec.yaml", f'version: "0.1"\n{key}: [x]\n')
-    with pytest.raises(CrewfileSyntaxError, match=f"`{key}` is not supported"):
+    with pytest.raises(CrewfileSyntaxError) as exc:
         load_crewfile(crewfile)
+    message = str(exc.value)
+    assert message == (
+        f"{crewfile}: `{key}` is not supported yet; see Not in V1 in the README"
+    )
+    assert "validation error" not in message
+    assert "pydantic" not in message
 
 
 def test_merge_unions_frontmatter_and_crewfile_deps() -> None:

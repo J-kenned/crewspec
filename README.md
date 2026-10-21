@@ -62,7 +62,7 @@ One schema, one parser, two file names:
 
 | File            | Role |
 | --------------- | ---- |
-| `*.crewfile`    | One agent or pack. Points at persona and skill files, lists dependency edges, and holds MCP launch configs. No content lives here. |
+| `*.crewfile`    | One agent or pack. Points at persona and skill files, lists dependency edges, and holds MCP launch configs. Persona and skill content lives in its own files. |
 | `crewspec.yaml` | The same schema. It will gain `include:` and `crew:` for composing several crewfiles; until composition lands, both keys are rejected with an error (see [Not in V1](#not-in-v1)). |
 
 Content stays in its native form. Skill bodies are `SKILL.md` directories (the

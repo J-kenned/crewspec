@@ -8,6 +8,7 @@ from crewspec.models import (
     CrewDoc,
     HttpMcpServer,
     McpServer,
+    SkillDef,
     SseMcpServer,
     StdioMcpServer,
 )
@@ -95,20 +96,15 @@ def test_agent_depends_on_rejects_unknown_key() -> None:
     assert "widgets" in str(exc.value)
 
 
-def test_skill_depends_on_has_no_agents_field() -> None:
-    # SkillDeps must not accept ``agents``, that belongs to AgentDeps only.
-    with pytest.raises(ValidationError):
-        CrewDoc.model_validate(
+def test_skill_depends_on_rejects_unknown_key() -> None:
+    with pytest.raises(ValidationError) as exc:
+        SkillDef.model_validate(
             {
-                "version": "0.1",
-                "skills": {
-                    "s": {
-                        "path": "skills/s",
-                        "depends_on": {"agents": ["a"]},
-                    }
-                },
+                "path": "skills/s",
+                "depends_on": {"widgets": ["x"]},
             }
         )
+    assert "widgets" in str(exc.value)
 
 
 def test_stdio_resolve_interpolates() -> None:

@@ -12,7 +12,8 @@ deduplicated); the crewfile may add deps but cannot drop one the skill author
 declared.
 
 ``crewspec.yaml`` is accepted by file name only: its composition keys
-(``include``, ``crew``) are rejected by :class:`CrewDoc` until composition lands.
+(``include``, ``crew``) are rejected here with a one-line error, before the
+document reaches :class:`CrewDoc`, until composition lands.
 """
 
 from __future__ import annotations
@@ -118,6 +119,13 @@ def _parse_doc(crewfile: Path) -> CrewDoc:
     if not isinstance(raw, dict):
         raise CrewfileSyntaxError("crewfile must be a YAML mapping", path=crewfile)
 
+    for key in ("include", "crew"):
+        if key in raw:
+            raise CrewfileSyntaxError(
+                f"`{key}` is not supported yet; see Not in V1 in the README",
+                path=crewfile,
+            )
+
     try:
         return CrewDoc.model_validate(raw)
     except ValidationError as exc:
@@ -194,7 +202,6 @@ def _validate_references(registry: NodeRegistry, crewfile: Path) -> None:
         deps = agent.definition.depends_on
         _check(registry.skills, deps.skills, crewfile, "agents", name, "skills")
         _check(registry.mcps, deps.mcps, crewfile, "agents", name, "mcps")
-        _check(registry.agents, deps.agents, crewfile, "agents", name, "agents")
 
     for name, skill in registry.skills.items():
         _check(registry.skills, skill.deps.skills, crewfile, "skills", name, "skills")

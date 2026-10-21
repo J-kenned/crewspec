@@ -15,10 +15,9 @@ class SkillDeps(BaseModel):
 
 
 class AgentDeps(BaseModel):
-    """What an agent depends on: skills, MCP servers, and other agents."""
+    """What an agent depends on: skills and MCP servers."""
 
     model_config = ConfigDict(extra="forbid")
 
     skills: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
-    agents: list[str] = Field(default_factory=list)

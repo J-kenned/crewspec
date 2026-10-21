@@ -10,7 +10,7 @@ from crewspec.plan import render_json, render_tree
 
 
 def _ir() -> ResolvedIR:
-    """A two-agent IR: ``reviewer`` requires ``base`` and owns the whole closure."""
+    """A two-agent IR: ``base`` is bare, ``reviewer`` owns the whole closure."""
 
     github = ResolvedMcp(
         name="github", server=StdioMcpServer(command="gh-mcp", args=["serve"])
@@ -30,19 +30,17 @@ def _ir() -> ResolvedIR:
         tools=("Read", "Edit"),
         skills=(fmt, lint),
         mcps=(github,),
-        requires_agents=("base",),
     )
     return ResolvedIR(agents=(base, reviewer), mcps=(github,))
 
 
-def test_render_tree_reflects_topological_order_and_dedup() -> None:
+def test_render_tree_reflects_ir_order_and_dedup() -> None:
     out = render_tree(_ir())
 
-    # Agents are printed in the order the IR carries them (topological).
+    # Agents are printed in the order the IR carries them (crewfile order).
     assert out.index("• base") < out.index("• reviewer")
     # The skill closure is printed dependency-first, verbatim from the IR.
     assert "skills:   format, lint" in out
-    assert "requires: base" in out
     # The global set is labelled as the deduplicated union with its transport.
     assert "mcp servers (deduplicated): 1" in out
     assert "github — stdio (gh-mcp serve)" in out
@@ -72,7 +70,7 @@ def test_render_tree_summarizes_remote_mcp() -> None:
 def test_render_tree_handles_empty_ir() -> None:
     out = render_tree(ResolvedIR())
     assert "crewspec plan: 0 agents, 0 skills, 0 mcp servers" in out
-    assert "agents (topological order):\n  (none)" in out
+    assert "agents:\n  (none)" in out
 
 
 def test_render_json_round_trips_into_ir() -> None:

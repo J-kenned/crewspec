@@ -2,16 +2,16 @@
 
 This is the heart of crewspec: a pure, no-IO transform from the loader's
 :class:`~crewspec.parser.registry.NodeRegistry` into the target-agnostic IR every
-emitter consumes. It performs four passes, all deterministic so golden output is
+emitter consumes. It performs three passes, all deterministic so golden output is
 stable:
 
 1. a transitive skill closure per agent (``agent → skills → (skills)``),
    dependency-first, with skill→skill cycle detection;
 2. the MCP closure for each agent (its own MCPs plus every closure skill's),
    deduplicated;
-3. a topological order over the agent graph with agent→agent cycle detection —
-   agent edges order emission only, they do not widen a closure;
-4. the global deduplicated MCP set, the union of every agent's MCPs.
+3. the global deduplicated MCP set, the union of every agent's MCPs.
+
+Agents are emitted in crewfile declaration order.
 
 """
 
@@ -32,13 +32,13 @@ def resolve(registry: NodeRegistry) -> ResolvedIR:
     resolves to a defined node, which the loader guarantees. An unvalidated
     registry with a dangling reference surfaces as a ``KeyError``.
 
-    Raises :class:`~crewspec.resolver.errors.CycleError` on a skill or agent
+    Raises :class:`~crewspec.resolver.errors.CycleError` on a skill
     dependency cycle and :class:`~crewspec.resolver.errors.ConflictError` when one
     name carries differing definitions.
     """
 
     resolved_agents: list[ResolvedAgent] = []
-    for name in _agent_order(registry):
+    for name in registry.agents:
         node = registry.agents[name]
         deps = node.definition.depends_on
 
@@ -53,7 +53,6 @@ def resolve(registry: NodeRegistry) -> ResolvedIR:
                 tools=tuple(node.definition.allowed_tools),
                 skills=tuple(skills),
                 mcps=tuple(mcps),
-                requires_agents=tuple(deps.agents),
             )
         )
 
@@ -122,20 +121,6 @@ def _skill_closure(registry: NodeRegistry, roots: list[str]) -> list[str]:
     """
 
     return _dfs_order(roots, lambda name: registry.skills[name].deps.skills, "skill")
-
-
-def _agent_order(registry: NodeRegistry) -> list[str]:
-    """Topological order over the agent graph, dependents last, deduped.
-
-    Agent→agent edges order emission only; they are not followed when building a
-    skill or MCP closure. A back edge raises :class:`CycleError`.
-    """
-
-    return _dfs_order(
-        list(registry.agents),
-        lambda name: registry.agents[name].definition.depends_on.agents,
-        "agent",
-    )
 
 
 def _dfs_order(

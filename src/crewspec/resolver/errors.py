@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Literal
 
 #: The kinds of node a resolution error can implicate.
-NodeKind = Literal["skill", "agent", "mcp"]
+NodeKind = Literal["skill", "mcp"]
 
 
 class ResolveError(Exception):
@@ -19,7 +19,7 @@ class ResolveError(Exception):
 
 
 class CycleError(ResolveError):
-    """A dependency cycle was found in the skill or agent graph.
+    """A dependency cycle was found in the skill graph.
 
     ``cycle`` is the offending path with the repeated node at both ends, e.g
     ``["lint", "format", "lint"]``, rendered into the message so it reads like a

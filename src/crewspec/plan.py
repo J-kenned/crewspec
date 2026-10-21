@@ -5,7 +5,7 @@ CLI so the click layer stays thin and the rendering is unit-testable on its own.
 Two views share one IR: a human-readable tree (:func:`render_tree`) and the raw
 IR serialization (:func:`render_json`) for scripted use.
 
-The IR arrives already ordered — ``agents`` topologically, each agent's
+The IR arrives already ordered — ``agents`` in crewfile order, each agent's
 ``skills``/``mcps`` dependency-first and deduplicated — so rendering is a straight
 walk that never re-derives order.
 """
@@ -32,11 +32,11 @@ def render_json(ir: ResolvedIR) -> str:
 def render_tree(ir: ResolvedIR, warnings: Sequence[str] = ()) -> str:
     """Render the resolved plan as a human-readable tree.
 
-    Lists agents in topological order with their resolved capabilities, then the
+    Lists agents in crewfile order with their resolved capabilities, then the
     global deduplicated MCP set, then any ``warnings`` captured during resolution.
     """
 
-    lines: list[str] = [_header(ir), "", "agents (topological order):"]
+    lines: list[str] = [_header(ir), "", "agents:"]
     if ir.agents:
         for agent in ir.agents:
             lines.extend(_agent_lines(agent))
@@ -81,7 +81,6 @@ def _agent_lines(agent: ResolvedAgent) -> list[str]:
         f"      tools:    {', '.join(agent.tools) or '(inherit all)'}",
         f"      skills:   {', '.join(s.name for s in agent.skills) or '(none)'}",
         f"      mcps:     {', '.join(m.name for m in agent.mcps) or '(none)'}",
-        f"      requires: {', '.join(agent.requires_agents) or '(none)'}",
     ]
 
 

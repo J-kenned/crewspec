@@ -207,12 +207,6 @@ def _agent_wiring(agent: ResolvedAgent) -> str:
             "## crewspec Tool Guidance\n\n"
             f"The source crew allowed these built-in tools for this agent: {names}."
         )
-    if agent.requires_agents:
-        names = ", ".join(agent.requires_agents)
-        sections.append(
-            "## crewspec Agent Dependencies\n\n"
-            f"This workflow depends on these other crewspec agents: {names}."
-        )
     return "\n\n".join(sections)
 
 
