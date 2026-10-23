@@ -35,7 +35,7 @@ from crewspec.emitters.claude import (
     _split_frontmatter,
 )
 from crewspec.emitters.errors import EmitError, MissingPersonaDescription
-from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp
+from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
 
@@ -53,8 +53,16 @@ class CodexEmitter(Emitter):
 
     def emit(self, ir: ResolvedIR, dest: Path) -> None:
         plugin_root = self.output_path(dest, ir.name)
-        # Refuse to wipe a directory crewspec did not write.
+        marketplace_path = dest.joinpath(*self.marketplace_path)
+
+        # Validate every input and read every file this install touches before
+        # changing anything, so a failure cannot leave a half-written plugin
+        # directory that later installs refuse to replace.
         self.previous_state(dest, ir.name)
+        _check_name_collisions(ir)
+        agents = [(agent, self._read_persona(agent)) for agent in ir.agents]
+        servers = _servers(ir.mcps)
+        marketplace = _merged_marketplace(marketplace_path, ir.name, self.plugins_dir)
 
         # crewspec owns the plugin subtree. The marketplace file is merged
         # separately because other local plugins may share that catalog.
@@ -62,15 +70,19 @@ class CodexEmitter(Emitter):
             shutil.rmtree(plugin_root)
         plugin_root.mkdir(parents=True)
 
-        self._write_manifest(plugin_root, ir.name, has_mcps=bool(ir.mcps))
-        self._copy_skills(plugin_root, ir)
-        for agent in ir.agents:
-            self._write_agent_skill(plugin_root, agent, ir.mcps)
-        self._write_mcp(plugin_root, ir.mcps)
-        self._write_marketplace(dest, ir.name)
-        PackState(name=ir.name, mcps=tuple(m.name for m in ir.mcps)).write(
+        # State first: from here on the pack owns the directory.
+        PackState(name=ir.name, mcps=tuple(servers)).write(
             self.state_path(dest, ir.name)
         )
+        self._write_manifest(plugin_root, ir.name, has_mcps=bool(servers))
+        self._copy_skills(plugin_root, ir.skills)
+        for agent, (description, body) in agents:
+            self._write_agent_skill(plugin_root, agent, description, body, ir.mcps)
+        if servers:
+            path = plugin_root / self.mcp_file
+            path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")
+        marketplace_path.parent.mkdir(parents=True, exist_ok=True)
+        marketplace_path.write_text(json.dumps(marketplace, indent=2) + "\n")
 
     def uninstall(self, pack: str, dest: Path) -> None:
         self.read_state(dest, pack)
@@ -110,25 +122,22 @@ class CodexEmitter(Emitter):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(manifest, indent=2) + "\n")
 
-    def _copy_skills(self, plugin_root: Path, ir: ResolvedIR) -> None:
-        agent_names = {agent.name for agent in ir.agents}
-        conflicts = sorted(agent_names & {skill.name for skill in ir.skills})
-        if conflicts:
-            joined = ", ".join(conflicts)
-            raise EmitError(
-                "Codex emitter maps agents to skills, so agent and skill names "
-                f"must not collide; conflicting name(s): {joined}"
-            )
-
-        for skill in ir.skills:
+    def _copy_skills(
+        self, plugin_root: Path, skills: tuple[ResolvedSkill, ...]
+    ) -> None:
+        for skill in skills:
             dest_dir = plugin_root / "skills" / skill.name
             shutil.copytree(skill.path, dest_dir, ignore=_SKILL_COPY_IGNORE)
             _normalize_skill_md(dest_dir)
 
     def _write_agent_skill(
-        self, plugin_root: Path, agent: ResolvedAgent, mcps: tuple[ResolvedMcp, ...]
+        self,
+        plugin_root: Path,
+        agent: ResolvedAgent,
+        description: str,
+        body: str,
+        mcps: tuple[ResolvedMcp, ...],
     ) -> None:
-        description, body = self._read_persona(agent)
         frontmatter = {"name": agent.name, "description": description}
         block = yaml.safe_dump(
             frontmatter, sort_keys=False, allow_unicode=True, width=1000
@@ -151,51 +160,55 @@ class CodexEmitter(Emitter):
             raise MissingPersonaDescription(agent.name, agent.persona_path)
         return description, body
 
-    def _write_mcp(self, plugin_root: Path, mcps: tuple[ResolvedMcp, ...]) -> None:
-        if not mcps:
-            return
 
-        file_secrets: set[str] = set()
-        servers = {mcp.name: _server_dict(mcp.server, file_secrets) for mcp in mcps}
-        for target in sorted(file_secrets):
-            warnings.warn(
-                f"file secret '${{file:{target}}}' has no Codex .mcp.json "
-                "equivalent; it is written verbatim and will not resolve until "
-                "a launcher mounts it",
-                stacklevel=2,
-            )
+def _check_name_collisions(ir: ResolvedIR) -> None:
+    """Codex maps agents to skills, so the two name sets may not overlap."""
 
-        path = plugin_root / self.mcp_file
-        path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")
+    conflicts = sorted({a.name for a in ir.agents} & {s.name for s in ir.skills})
+    if conflicts:
+        raise EmitError(
+            "Codex emitter maps agents to skills, so agent and skill names "
+            f"must not collide; conflicting name(s): {', '.join(conflicts)}"
+        )
 
-    def _write_marketplace(self, dest: Path, name: str) -> None:
-        path = dest.joinpath(*self.marketplace_path)
-        marketplace = _read_marketplace(path)
-        marketplace["name"] = marketplace.get("name") or "local-repo"
-        plugins = marketplace.setdefault("plugins", [])
-        if not isinstance(plugins, list):
-            raise EmitError(f"Codex marketplace '{path}' has non-list 'plugins'")
 
-        entry = {
-            "name": name,
-            "source": {
-                "source": "local",
-                "path": "./" + "/".join((*self.plugins_dir, name)),
-            },
-            "policy": {
-                "installation": "AVAILABLE",
-                "authentication": "ON_INSTALL",
-            },
-            "category": "Developer Tools",
-            "interface": {"displayName": name},
-        }
+def _servers(mcps: tuple[ResolvedMcp, ...]) -> dict[str, dict[str, object]]:
+    """Render every MCP server for the plugin ``.mcp.json``, warning on file secrets."""
 
-        kept = [item for item in plugins if not _is_plugin_entry(item, name)]
-        kept.append(entry)
-        marketplace["plugins"] = kept
+    file_secrets: set[str] = set()
+    servers = {mcp.name: _server_dict(mcp.server, file_secrets) for mcp in mcps}
+    for target in sorted(file_secrets):
+        warnings.warn(
+            f"file secret '${{file:{target}}}' has no Codex .mcp.json "
+            "equivalent; it is written verbatim and will not resolve until "
+            "a launcher mounts it",
+            stacklevel=3,
+        )
+    return servers
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(marketplace, indent=2) + "\n")
+
+def _merged_marketplace(
+    path: Path, name: str, plugins_dir: tuple[str, ...]
+) -> dict[str, object]:
+    """The marketplace at ``path`` with this pack's entry replaced or appended."""
+
+    marketplace = _read_marketplace(path)
+    marketplace["name"] = marketplace.get("name") or "local-repo"
+    plugins = marketplace.setdefault("plugins", [])
+    if not isinstance(plugins, list):
+        raise EmitError(f"Codex marketplace '{path}' has non-list 'plugins'")
+
+    entry = {
+        "name": name,
+        "source": {"source": "local", "path": "./" + "/".join((*plugins_dir, name))},
+        "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+        "category": "Developer Tools",
+        "interface": {"displayName": name},
+    }
+    kept = [item for item in plugins if not _is_plugin_entry(item, name)]
+    kept.append(entry)
+    marketplace["plugins"] = kept
+    return marketplace
 
 
 def _agent_wiring(agent: ResolvedAgent, mcps: tuple[ResolvedMcp, ...]) -> str:

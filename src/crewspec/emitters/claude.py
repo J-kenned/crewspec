@@ -26,6 +26,7 @@ import json
 import os
 import shutil
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Iterable
 
@@ -116,7 +117,13 @@ class ClaudeEmitter(Emitter):
         for root in self.installed(dest):
             if root.name == pack:
                 continue
-            other = PackState.read(self.state_path(dest, root.name))
+            try:
+                other = PackState.read(self.state_path(dest, root.name))
+            except EmitError as exc:
+                # Same treatment as `list`: a damaged sibling is reported, not
+                # allowed to block an unrelated install.
+                warnings.warn(f"{exc}; MCP servers not listed", stacklevel=2)
+                continue
             taken = sorted(set(other.mcps if other else ()) & set(servers))
             if taken:
                 raise EmitError(
@@ -193,17 +200,24 @@ def _write_atomic(path: Path, data: bytes) -> None:
 
     ``.claude.json`` may be written by Claude Code at the same time; a rename
     means a reader sees either the old file or the new one, never a torn write.
-    The original's mode is kept.
+    A symlinked target (a dotfiles repo, say) is followed so the file behind
+    the link is replaced and the link survives. An existing file keeps its
+    mode; a new one gets the mode ``open`` would have given it.
     """
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    real = Path(os.path.realpath(path))
+    real.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=real.parent, prefix=f".{real.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
-        if path.exists():
-            shutil.copymode(path, tmp)
-        os.replace(tmp, path)
+        if real.exists():
+            shutil.copymode(real, tmp)
+        else:
+            umask = os.umask(0)
+            os.umask(umask)
+            os.chmod(tmp, 0o666 & ~umask)
+        os.replace(tmp, real)
     except BaseException:
         try:
             os.unlink(tmp)

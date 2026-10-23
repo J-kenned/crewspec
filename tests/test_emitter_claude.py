@@ -663,6 +663,68 @@ def test_uninstall_rejects_names_that_are_not_pack_names(
     assert victim.is_dir()
 
 
+def test_symlinked_user_files_are_written_through_the_link(tmp_path: Path) -> None:
+    # N2: a dotfiles-style symlink must survive; the file behind it is updated.
+    dest = tmp_path / "out"
+    dotfiles = tmp_path / "dotfiles"
+    dotfiles.mkdir()
+    (dotfiles / "claude.json").write_text('{"theirs": true}')
+    (dotfiles / "CLAUDE.md").write_text("# Mine\n")
+    (dest / ".claude").mkdir(parents=True)
+    (dest / ".claude.json").symlink_to(dotfiles / "claude.json")
+    (dest / ".claude" / "CLAUDE.md").symlink_to(dotfiles / "CLAUDE.md")
+
+    ClaudeEmitter().emit(
+        _ir(
+            instructions=_instructions(tmp_path, "Rules."),
+            mcps=(_mcp("m", StdioMcpServer(command="m")),),
+        ),
+        dest,
+    )
+
+    assert (dest / ".claude.json").is_symlink()
+    assert (dest / ".claude" / "CLAUDE.md").is_symlink()
+    assert json.loads((dotfiles / "claude.json").read_text()) == {
+        "theirs": True,
+        "mcpServers": {"m": {"type": "stdio", "command": "m"}},
+    }
+    assert (dotfiles / "CLAUDE.md").read_text() == (
+        f"# Mine\n\n{BEGIN}\nRules.\n{END}\n"
+    )
+
+
+def test_fresh_user_files_get_umask_mode_not_0600(tmp_path: Path) -> None:
+    # N4: mkstemp creates 0600; a new file should look like one `open` made.
+    dest = tmp_path / "out"
+    ClaudeEmitter().emit(
+        _ir(
+            instructions=_instructions(tmp_path),
+            mcps=(_mcp("m", StdioMcpServer(command="m")),),
+        ),
+        dest,
+    )
+
+    umask = os.umask(0)
+    os.umask(umask)
+    expected = 0o666 & ~umask
+    assert (dest / ".claude.json").stat().st_mode & 0o777 == expected
+    assert (dest / ".claude" / "CLAUDE.md").stat().st_mode & 0o777 == expected
+
+
+def test_corrupt_sibling_state_warns_instead_of_blocking(tmp_path: Path) -> None:
+    # N3: match `list`: a damaged unrelated pack is a warning, not a failure.
+    dest = tmp_path / "out"
+    ClaudeEmitter().emit(ResolvedIR(name="other", agents=(_agent(tmp_path),)), dest)
+    (
+        dest / ".claude" / "skills" / "other" / ".claude-plugin" / "crewspec.json"
+    ).write_text("{not json")
+
+    with pytest.warns(UserWarning, match="not a valid crewspec state file"):
+        ClaudeEmitter().emit(_ir(mcps=(_mcp("m", StdioMcpServer(command="m")),)), dest)
+
+    assert dest.joinpath(*PLUGIN).is_dir()
+
+
 def test_user_files_are_written_atomically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

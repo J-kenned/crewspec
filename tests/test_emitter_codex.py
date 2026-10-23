@@ -283,6 +283,36 @@ def test_install_refuses_to_wipe_a_directory_it_did_not_write(tmp_path: Path) ->
     assert theirs.read_text() == "{}"
 
 
+def test_failed_install_does_not_lock_the_pack_out(tmp_path: Path) -> None:
+    # N1: an error after the wipe used to leave plugin.json without a state
+    # file, so every later install was refused as "not written by crewspec".
+    dest = tmp_path / "out"
+    persona = _persona(tmp_path, "a", description="A", body="# A\n")
+    lint = _skill(tmp_path, "lint")
+    good = _ir(agents=(ResolvedAgent(name="a", persona_path=persona),), skills=(lint,))
+    CodexEmitter().emit(good, dest)
+    root = dest.joinpath(*PLUGIN)
+
+    clash = _persona(tmp_path, "lint", description="L", body="# L\n")
+    bad = _ir(agents=(ResolvedAgent(name="lint", persona_path=clash),), skills=(lint,))
+    with pytest.raises(EmitError, match="must not collide"):
+        CodexEmitter().emit(bad, dest)
+    # The previous install is intact, state file included.
+    assert (root / ".codex-plugin" / "crewspec.json").is_file()
+    assert (root / "skills" / "a" / "SKILL.md").is_file()
+
+    market = (tmp_path / "out").joinpath(*MARKETPLACE)
+    market.write_text("{not json")
+    with pytest.raises(EmitError, match="not valid JSON"):
+        CodexEmitter().emit(good, dest)
+    assert (root / ".codex-plugin" / "crewspec.json").is_file()
+
+    market.unlink()
+    CodexEmitter().emit(good, dest)
+    CodexEmitter().uninstall(PACK, dest)
+    assert not root.exists()
+
+
 def test_agent_skill_name_collision_raises(tmp_path: Path) -> None:
     persona = _persona(tmp_path, "lint", description="Lint agent", body="# L\n")
     skill = _skill(tmp_path, "lint")
