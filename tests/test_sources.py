@@ -25,7 +25,7 @@ from crewspec.sources.github import DEFAULT_REF, GitHubRef
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = REPO_ROOT / "examples" / "code-review-crew"
-PLUGIN = (".claude", "skills", "crewspec")
+PLUGIN = (".claude", "skills", "code-review-crew")
 
 
 def test_parse_owner_repo_uses_default_ref() -> None:
@@ -127,7 +127,7 @@ def test_install_from_github_subdir(
     assert (root / ".claude-plugin" / "plugin.json").is_file()
     assert (root / "agents" / "reviewer.md").is_file()
     assert (root / "skills" / "code-review" / "SKILL.md").is_file()
-    assert (root / ".mcp.json").is_file()
+    assert (tmp_path / ".claude.json").is_file()
 
 
 def test_install_from_github_repo_root(

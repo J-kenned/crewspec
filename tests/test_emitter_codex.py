@@ -13,7 +13,8 @@ from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
 from crewspec.models import HttpMcpServer, StdioMcpServer
 from crewspec.models.mcp import McpServer
 
-PLUGIN = ("plugins", "crewspec")
+PACK = "pack"
+PLUGIN = ("plugins", PACK)
 MARKETPLACE = (".agents", "plugins", "marketplace.json")
 
 
@@ -43,6 +44,10 @@ def _mcp(name: str, server: McpServer) -> ResolvedMcp:
     return ResolvedMcp(name=name, server=server)
 
 
+def _ir(**kwargs: object) -> ResolvedIR:
+    return ResolvedIR(name=PACK, **kwargs)  # type: ignore[arg-type]
+
+
 def _emit(tmp_path: Path, ir: ResolvedIR) -> Path:
     dest = tmp_path / "out"
     CodexEmitter().emit(ir, dest)
@@ -60,31 +65,36 @@ def _frontmatter(skill_md: Path) -> tuple[dict[str, object], str]:
 
 def test_manifest_and_repo_marketplace_are_written(tmp_path: Path) -> None:
     persona = _persona(tmp_path, "reviewer", description="Reviews code", body="# R\n")
-    ir = ResolvedIR(agents=(ResolvedAgent(name="reviewer", persona_path=persona),))
+    ir = _ir(agents=(ResolvedAgent(name="reviewer", persona_path=persona),))
 
     root = _emit(tmp_path, ir)
     manifest = json.loads((root / ".codex-plugin" / "plugin.json").read_text())
     marketplace = json.loads((tmp_path / "out").joinpath(*MARKETPLACE).read_text())
+    state = json.loads((root / ".codex-plugin" / "crewspec.json").read_text())
 
-    assert manifest["name"] == "crewspec"
+    assert root == tmp_path / "out" / "plugins" / PACK
+    assert manifest["name"] == PACK
     assert manifest["version"] == "0.1.1"
     assert manifest["skills"] == "./skills/"
+    assert manifest["interface"]["displayName"] == PACK
+    assert manifest["interface"]["developerName"] == PACK
     assert "mcpServers" not in manifest
     assert marketplace == {
         "name": "local-repo",
         "plugins": [
             {
-                "name": "crewspec",
-                "source": {"source": "local", "path": "./plugins/crewspec"},
+                "name": PACK,
+                "source": {"source": "local", "path": f"./plugins/{PACK}"},
                 "policy": {
                     "installation": "AVAILABLE",
                     "authentication": "ON_INSTALL",
                 },
                 "category": "Developer Tools",
-                "interface": {"displayName": "crewspec"},
+                "interface": {"displayName": PACK},
             }
         ],
     }
+    assert state == {"name": PACK, "mcps": [], "instructions": False}
 
 
 def test_agent_is_emitted_as_codex_skill_with_resolved_wiring(
@@ -98,16 +108,17 @@ def test_agent_is_emitted_as_codex_skill_with_resolved_wiring(
     )
     lint = _skill(tmp_path, "lint")
     fmt = _skill(tmp_path, "format")
-    ir = ResolvedIR(
+    orphan = _skill(tmp_path, "orphan")
+    ir = _ir(
         agents=(
             ResolvedAgent(
                 name="reviewer",
                 persona_path=persona,
                 tools=("Read", "Edit"),
                 skills=(fmt, lint),
-                mcps=(_mcp("github", StdioMcpServer(command="gh-mcp")),),
             ),
         ),
+        skills=(fmt, lint, orphan),
         mcps=(_mcp("github", StdioMcpServer(command="gh-mcp")),),
     )
 
@@ -126,12 +137,14 @@ def test_agent_is_emitted_as_codex_skill_with_resolved_wiring(
     assert (root / "skills" / "lint" / "references" / "rules.md").read_text() == (
         "rules\n"
     )
+    # Every declared skill ships, listed by an agent or not.
+    assert (root / "skills" / "orphan" / "SKILL.md").is_file()
 
 
 def test_mcp_json_uses_codex_plugin_manifest_and_server_shape(
     tmp_path: Path,
 ) -> None:
-    ir = ResolvedIR(
+    ir = _ir(
         mcps=(
             _mcp(
                 "auth",
@@ -189,7 +202,7 @@ def test_marketplace_preserves_other_plugins_and_replaces_crewspec(
                 "plugins": [
                     {"name": "other", "source": {"source": "local", "path": "./x"}},
                     {
-                        "name": "crewspec",
+                        "name": PACK,
                         "source": {"source": "local", "path": "./old"},
                     },
                 ],
@@ -199,24 +212,56 @@ def test_marketplace_preserves_other_plugins_and_replaces_crewspec(
     persona = _persona(tmp_path, "a", description="A", body="# A\n")
 
     CodexEmitter().emit(
-        ResolvedIR(agents=(ResolvedAgent(name="a", persona_path=persona),)),
+        _ir(agents=(ResolvedAgent(name="a", persona_path=persona),)),
         dest,
     )
 
     marketplace = json.loads(path.read_text())
     assert marketplace["name"] == "existing"
-    assert [plugin["name"] for plugin in marketplace["plugins"]] == [
-        "other",
-        "crewspec",
-    ]
-    assert marketplace["plugins"][1]["source"]["path"] == "./plugins/crewspec"
+    assert [plugin["name"] for plugin in marketplace["plugins"]] == ["other", PACK]
+    assert marketplace["plugins"][1]["source"]["path"] == f"./plugins/{PACK}"
+
+
+def test_uninstall_removes_plugin_and_marketplace_entry_only(tmp_path: Path) -> None:
+    dest = tmp_path / "out"
+    path = dest.joinpath(*MARKETPLACE)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "name": "existing",
+                "plugins": [
+                    {"name": "other", "source": {"source": "local", "path": "./x"}}
+                ],
+            }
+        )
+    )
+    (dest / "plugins" / "theirs").mkdir(parents=True)
+    (dest / "plugins" / "theirs" / "keep.txt").write_text("keep\n")
+    persona = _persona(tmp_path, "a", description="A", body="# A\n")
+    CodexEmitter().emit(
+        _ir(agents=(ResolvedAgent(name="a", persona_path=persona),)), dest
+    )
+
+    CodexEmitter().uninstall(PACK, dest)
+
+    assert not dest.joinpath(*PLUGIN).exists()
+    assert (dest / "plugins" / "theirs" / "keep.txt").read_text() == "keep\n"
+    marketplace = json.loads(path.read_text())
+    assert [plugin["name"] for plugin in marketplace["plugins"]] == ["other"]
+
+
+def test_uninstall_unknown_pack_is_a_clear_error(tmp_path: Path) -> None:
+    with pytest.raises(EmitError, match="no pack 'ghost' is installed for codex"):
+        CodexEmitter().uninstall("ghost", tmp_path / "out")
 
 
 def test_agent_skill_name_collision_raises(tmp_path: Path) -> None:
     persona = _persona(tmp_path, "lint", description="Lint agent", body="# L\n")
     skill = _skill(tmp_path, "lint")
-    ir = ResolvedIR(
+    ir = _ir(
         agents=(ResolvedAgent(name="lint", persona_path=persona, skills=(skill,)),),
+        skills=(skill,),
     )
 
     with pytest.raises(EmitError, match="must not collide"):
@@ -225,7 +270,7 @@ def test_agent_skill_name_collision_raises(tmp_path: Path) -> None:
 
 def test_missing_persona_description_raises(tmp_path: Path) -> None:
     persona = _persona(tmp_path, "a", description=None, body="# A\n")
-    ir = ResolvedIR(agents=(ResolvedAgent(name="a", persona_path=persona),))
+    ir = _ir(agents=(ResolvedAgent(name="a", persona_path=persona),))
 
     with pytest.raises(MissingPersonaDescription, match="agent 'a'"):
         CodexEmitter().emit(ir, tmp_path / "out")
@@ -234,8 +279,9 @@ def test_missing_persona_description_raises(tmp_path: Path) -> None:
 def test_reemit_is_byte_identical_and_clears_stale_files(tmp_path: Path) -> None:
     persona = _persona(tmp_path, "a", description="A", body="# A\n")
     skill = _skill(tmp_path, "lint")
-    ir = ResolvedIR(
+    ir = _ir(
         agents=(ResolvedAgent(name="a", persona_path=persona, skills=(skill,)),),
+        skills=(skill,),
         mcps=(_mcp("m", StdioMcpServer(command="serve")),),
     )
 

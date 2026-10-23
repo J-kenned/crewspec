@@ -42,6 +42,7 @@ def _build_min_crew(tmp_path: Path) -> Path:
         tmp_path / "crew.crewfile",
         """
 version: "0.1"
+name: mini
 agents:
   a:
     persona: agents/a.md
@@ -60,6 +61,8 @@ def test_happy_path_loads_registry() -> None:
     crew = load_crewfile(HAPPY)
 
     assert crew.root == HAPPY.parent
+    assert crew.registry.name == "team"
+    assert crew.registry.instructions is None
     assert set(crew.registry.agents) == {"reviewer"}
     assert set(crew.registry.skills) == {"lint", "format"}
     assert set(crew.registry.mcps) == {"github"}
@@ -77,9 +80,64 @@ def test_happy_path_resolves_artifact_paths() -> None:
     assert lint.skill_md == HAPPY.parent / "skills/lint/SKILL.md"
 
 
+def test_missing_name_is_a_one_line_error(tmp_path: Path) -> None:
+    crewfile = _write(tmp_path / "crew.crewfile", 'version: "0.1"\n')
+    with pytest.raises(CrewfileSyntaxError) as exc:
+        load_crewfile(crewfile)
+    assert str(exc.value) == (
+        f"{crewfile}: top-level `name` is required: lowercase letters, digits, "
+        "and hyphens"
+    )
+
+
+def test_legacy_agent_mcps_errors_with_migration_hint(tmp_path: Path) -> None:
+    _write(tmp_path / "agents" / "a.md", "# Agent\n")
+    crewfile = _write(
+        tmp_path / "crew.crewfile",
+        """
+version: "0.1"
+name: legacy
+agents:
+  a:
+    persona: agents/a.md
+    depends_on:
+      mcps: [github]
+mcps:
+  github: {type: stdio, command: gh}
+""",
+    )
+    with pytest.raises(CrewfileSyntaxError) as exc:
+        load_crewfile(crewfile)
+    message = str(exc.value)
+    assert "agents.a.depends_on.mcps is no longer supported" in message
+    assert "MCPs are global" in message
+    assert "delete the key" in message
+    assert "pydantic" not in message
+
+
+def test_instructions_resolves_against_crewfile_dir(tmp_path: Path) -> None:
+    crewfile = _build_min_crew(tmp_path)
+    _write(tmp_path / "docs" / "rules.md", "# Rules\n")
+    crewfile.write_text(crewfile.read_text() + "instructions: docs/rules.md\n")
+
+    crew = load_crewfile(crewfile)
+    assert crew.registry.instructions == tmp_path / "docs" / "rules.md"
+
+
+def test_missing_instructions_file_raises(tmp_path: Path) -> None:
+    crewfile = _build_min_crew(tmp_path)
+    crewfile.write_text(crewfile.read_text() + "instructions: docs/rules.md\n")
+
+    with pytest.raises(MissingArtifactError, match="instructions file") as exc:
+        load_crewfile(crewfile)
+    assert exc.value.path == crewfile
+
+
 @pytest.mark.parametrize("key", ["include", "crew"])
 def test_composition_keys_are_rejected(tmp_path: Path, key: str) -> None:
-    crewfile = _write(tmp_path / "crewspec.yaml", f'version: "0.1"\n{key}: [x]\n')
+    crewfile = _write(
+        tmp_path / "crewspec.yaml", f'version: "0.1"\nname: c\n{key}: [x]\n'
+    )
     with pytest.raises(CrewfileSyntaxError) as exc:
         load_crewfile(crewfile)
     message = str(exc.value)
@@ -107,6 +165,7 @@ def test_merge_is_frontmatter_first_and_deduplicated(tmp_path: Path) -> None:
         tmp_path / "crew.crewfile",
         """
 version: "0.1"
+name: merge
 skills:
   s:
     path: skills/s
@@ -186,14 +245,22 @@ def test_unknown_dependency_reference_raises(tmp_path: Path) -> None:
         tmp_path / "crew.crewfile",
         """
 version: "0.1"
+name: dangling
 agents:
   a:
     persona: agents/a.md
     depends_on:
-      mcps: [ghost]
+      skills: [ghost]
 """,
     )
     with pytest.raises(UnknownReferenceError, match="ghost"):
+        load_crewfile(crewfile)
+
+
+def test_unknown_skill_mcp_reference_raises(tmp_path: Path) -> None:
+    crewfile = _build_min_crew(tmp_path)
+    _write(tmp_path / "skills" / "s" / "SKILL.md", _skill_md(mcps="ghost"))
+    with pytest.raises(UnknownReferenceError, match="skills.s.depends_on.mcps"):
         load_crewfile(crewfile)
 
 
@@ -212,6 +279,8 @@ def test_invalid_yaml_raises_syntax_error(tmp_path: Path) -> None:
 
 
 def test_schema_violation_raises_syntax_error(tmp_path: Path) -> None:
-    crewfile = _write(tmp_path / "crew.crewfile", 'version: "0.1"\nbogus: true\n')
+    crewfile = _write(
+        tmp_path / "crew.crewfile", 'version: "0.1"\nname: x\nbogus: true\n'
+    )
     with pytest.raises(CrewfileSyntaxError, match="schema"):
         load_crewfile(crewfile)

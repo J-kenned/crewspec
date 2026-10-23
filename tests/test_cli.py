@@ -16,8 +16,8 @@ from crewspec.cli import cli
 from crewspec.ir import ResolvedIR
 
 FIXTURE = Path(__file__).parent / "fixtures" / "happy"
-PLUGIN = (".claude", "skills", "crewspec")
-CODEX_PLUGIN = ("plugins", "crewspec")
+PLUGIN = (".claude", "skills", "team")
+CODEX_PLUGIN = ("plugins", "team")
 
 
 def _run(*args: str) -> Result:
@@ -40,7 +40,9 @@ def test_install_emits_full_plugin_tree(tmp_path: Path) -> None:
     # Extra skill subdirectories ride along with their skill.
     assert (root / "skills" / "lint" / "references" / "rules.md").is_file()
 
-    mcp = yaml.safe_load((root / ".mcp.json").read_text())
+    # MCPs are user-scoped: merged into .claude.json, not shipped in the plugin.
+    assert not (root / ".mcp.json").exists()
+    mcp = yaml.safe_load((tmp_path / ".claude.json").read_text())
     assert "github" in mcp["mcpServers"]
 
 
@@ -92,7 +94,7 @@ def test_agent_map_key_names_the_emitted_agent_file(tmp_path: Path) -> None:
     # map key can produce agents/reviewer.md.
     (tmp_path / "persona.md").write_text("---\ndescription: r\n---\n\nbody\n")
     (tmp_path / "team.crewfile").write_text(
-        'version: "0.1"\nagents:\n  reviewer:\n    persona: persona.md\n'
+        'version: "0.1"\nname: team\nagents:\n  reviewer:\n    persona: persona.md\n'
     )
     out = tmp_path / "out"
     result = _run("install", str(tmp_path / "team.crewfile"), "--out", str(out))
@@ -141,14 +143,70 @@ def test_directory_without_a_crewfile_errors(tmp_path: Path) -> None:
     assert "crewfile" in result.stderr.lower()
 
 
+def test_missing_name_errors(tmp_path: Path) -> None:
+    (tmp_path / "team.crewfile").write_text('version: "0.1"\n')
+    result = _run("install", str(tmp_path / "team.crewfile"), "--out", str(tmp_path))
+
+    assert result.exit_code == 1
+    assert "top-level `name` is required" in result.stderr
+
+
+def test_legacy_agent_mcps_errors_with_explanation(tmp_path: Path) -> None:
+    (tmp_path / "persona.md").write_text("---\ndescription: r\n---\n\nbody\n")
+    (tmp_path / "team.crewfile").write_text(
+        'version: "0.1"\nname: team\n'
+        "agents:\n  r:\n    persona: persona.md\n    depends_on:\n      mcps: [gh]\n"
+        "mcps:\n  gh: {type: stdio, command: gh}\n"
+    )
+    result = _run("install", str(tmp_path / "team.crewfile"), "--out", str(tmp_path))
+
+    assert result.exit_code == 1
+    assert "agents.r.depends_on.mcps is no longer supported" in result.stderr
+    assert "MCPs are global" in result.stderr
+
+
+def test_uninstall_removes_the_pack(tmp_path: Path) -> None:
+    assert _run("install", str(FIXTURE), "--out", str(tmp_path)).exit_code == 0
+
+    result = _run("uninstall", "team", "--out", str(tmp_path))
+
+    assert result.exit_code == 0, result.output
+    assert "Uninstalled team (target: claude)" in result.output
+    assert not tmp_path.joinpath(*PLUGIN).exists()
+    assert yaml.safe_load((tmp_path / ".claude.json").read_text()) == {"mcpServers": {}}
+
+
+def test_uninstall_codex_target(tmp_path: Path) -> None:
+    install = _run("install", str(FIXTURE), "--target", "codex", "--out", str(tmp_path))
+    assert install.exit_code == 0, install.output
+
+    result = _run("uninstall", "team", "--target", "codex", "--out", str(tmp_path))
+
+    assert result.exit_code == 0, result.output
+    assert not tmp_path.joinpath(*CODEX_PLUGIN).exists()
+    marketplace = yaml.safe_load(
+        (tmp_path / ".agents" / "plugins" / "marketplace.json").read_text()
+    )
+    assert marketplace["plugins"] == []
+
+
+def test_uninstall_unknown_name_errors(tmp_path: Path) -> None:
+    result = _run("uninstall", "ghost", "--out", str(tmp_path))
+
+    assert result.exit_code == 1
+    assert "no pack 'ghost' is installed for claude" in result.stderr
+
+
 def test_validate_prints_resolved_plan() -> None:
     result = _run("validate", str(FIXTURE))
 
     assert result.exit_code == 0, result.output
+    assert "crewspec plan: team" in result.output
     assert "reviewer" in result.output
-    # The resolved skill closure is printed dependency-first.
-    assert "format, lint" in result.output
-    assert "mcp servers (deduplicated): 1" in result.output
+    # The agent's declared skills, then every declared skill.
+    assert "skills:   lint" in result.output
+    assert "• format" in result.output
+    assert "mcp servers: 1" in result.output
 
 
 def test_validate_writes_no_files() -> None:
@@ -164,7 +222,9 @@ def test_validate_json_round_trips_into_the_ir() -> None:
 
     assert result.exit_code == 0, result.output
     ir = ResolvedIR.model_validate_json(result.output)
+    assert ir.name == "team"
     assert [agent.name for agent in ir.agents] == ["reviewer"]
+    assert [skill.name for skill in ir.skills] == ["lint", "format"]
     assert [mcp.name for mcp in ir.mcps] == ["github"]
 
 
@@ -184,13 +244,15 @@ def test_validate_missing_path_errors(tmp_path: Path) -> None:
     assert result.exit_code == 2  # click rejects a nonexistent SOURCE argument
 
 
-def test_validate_resolve_cycle_exits_nonzero(tmp_path: Path) -> None:
+def test_validate_accepts_a_skill_frontmatter_cycle(tmp_path: Path) -> None:
+    # Dependencies are reference checks only, so a cycle is not an error.
     _write_cycle_crew(tmp_path)
 
     result = _run("validate", str(tmp_path / "team.crewfile"))
 
-    assert result.exit_code == 1
-    assert "cycle" in result.stderr.lower()
+    assert result.exit_code == 0, result.output
+    assert "• s1" in result.output
+    assert "• s2" in result.output
 
 
 def _write_cycle_crew(root: Path) -> None:
@@ -206,6 +268,7 @@ def _write_cycle_crew(root: Path) -> None:
     (root / "agent.md").write_text("---\nname: a\ndescription: a\n---\n\nbody\n")
     (root / "team.crewfile").write_text(
         'version: "0.1"\n'
+        "name: team\n"
         "agents:\n"
         "  a:\n"
         "    persona: agent.md\n"

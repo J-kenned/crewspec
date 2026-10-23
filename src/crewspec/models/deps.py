@@ -1,4 +1,10 @@
-"""Dependency declarations for skills and agents."""
+"""Dependency declarations for skills and agents.
+
+Dependencies are reference checks: every name must be declared in the crewfile.
+They do not select what is emitted; every declared skill and MCP is installed.
+MCPs are global, so an agent declares none (the loader rejects a legacy
+``depends_on.mcps`` with an explanatory message).
+"""
 
 from __future__ import annotations
 
@@ -15,9 +21,8 @@ class SkillDeps(BaseModel):
 
 
 class AgentDeps(BaseModel):
-    """What an agent depends on: skills and MCP servers."""
+    """What an agent depends on: the skills listed in its emitted agent file."""
 
     model_config = ConfigDict(extra="forbid")
 
     skills: list[str] = Field(default_factory=list)
-    mcps: list[str] = Field(default_factory=list)

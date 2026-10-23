@@ -36,20 +36,31 @@ uv run pre-commit run --all-files
 `src/crewspec` is a three-stage pipeline (`pipeline.py`):
 
 1. `parser/` loads a crewfile and each skill's `SKILL.md` frontmatter into a
-   node registry.
-2. `resolver/` turns the registry into the `ir` module's `ResolvedIR`. The IR
-   is the resolved plan of agents, skills, and MCPs that every emitter reads.
-   It carries no target-specific detail.
+   node registry. It checks that `name` is present and well formed, that every
+   persona, skill directory, and `instructions` file exists, and that every
+   `depends_on` reference names a declared node. Dependencies are reference
+   checks only.
+2. `resolver/` flattens the registry into the `ir` module's `ResolvedIR`: the
+   pack name, the instructions path, the agents (each with the skills it
+   declares), and every declared skill and MCP server, all in crewfile order.
+   There is no closure or cycle detection; everything declared is emitted. The
+   IR carries no target-specific detail.
 3. `emitters/` write target files from the `ResolvedIR`. `claude.py` and
-   `codex.py` are the two targets. To add one, subclass `Emitter` in `base.py`
-   and register it in `EMITTERS` in `emitters/__init__.py`.
+   `codex.py` are the two targets. Each keeps one plugin directory per pack and
+   writes a `crewspec.json` state file inside it (`PackState` in `base.py`)
+   recording what the pack wrote outside that directory; `list` and
+   `uninstall` read it. To add a target, subclass `Emitter` in `base.py`
+   (`emit` and `uninstall`) and register it in `EMITTERS` in
+   `emitters/__init__.py`.
 
 `sources/` fetches `github:` packs. `plan.py` renders `validate` output.
+`installed.py` scans for state files behind `list`.
 
 ## Golden fixtures
 
-`tests/test_golden_e2e.py` installs `examples/code-review-crew` and compares the
-emitted Claude plugin byte for byte with `tests/golden/code-review-crew`. After
+`tests/test_golden_e2e.py` installs `examples/code-review-crew` and compares
+everything the Claude target writes under `--out` (the plugin, `.claude.json`,
+and `.claude/CLAUDE.md`) byte for byte with `tests/golden/code-review-crew`. After
 an intentional change to the emitted format, regenerate the golden and review
 the diff before committing:
 

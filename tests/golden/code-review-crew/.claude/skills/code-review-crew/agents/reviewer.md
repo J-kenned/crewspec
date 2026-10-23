@@ -2,7 +2,7 @@
 name: reviewer
 description: Reviews pull requests for correctness, style, and risk before merge.
 tools: Read, Grep, Bash, mcp__github
-skills: test-analysis, code-review
+skills: code-review
 ---
 
 # Reviewer

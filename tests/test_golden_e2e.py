@@ -1,4 +1,8 @@
-"""Golden end-to-end test: install the example pack and lock the emitted tree."""
+"""Golden end-to-end test: install the example pack and lock everything it writes.
+
+The snapshot covers the whole ``--out`` directory: the plugin under
+``.claude/skills/<name>/``, the user-scope ``.claude.json``, and ``.claude/CLAUDE.md``.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ from crewspec.cli import cli
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = REPO_ROOT / "examples" / "code-review-crew"
 GOLDEN = REPO_ROOT / "tests" / "golden" / "code-review-crew"
-PLUGIN = (".claude", "skills", "crewspec")
+PLUGIN = (".claude", "skills", "code-review-crew")
 UPDATE_GOLDEN = os.environ.get("UPDATE_GOLDEN") == "1"
 
 
@@ -23,7 +27,7 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     """Map every file under ``root`` to its bytes, keyed by POSIX relpath.
 
     Keying by path makes the comparison order-independent while the bytes keep it
-    content-exact; ``rglob`` includes dotfiles like ``.mcp.json``.
+    content-exact; ``rglob`` includes dotfiles like ``.claude.json``.
     """
 
     return {
@@ -34,11 +38,11 @@ def _snapshot(root: Path) -> dict[str, bytes]:
 
 
 def _emit(out: Path) -> Path:
-    """Install the example pack into ``out`` and return the emitted plugin root."""
+    """Install the example pack into ``out`` and return ``out``."""
 
     result = CliRunner().invoke(cli, ["install", str(EXAMPLE), "--out", str(out)])
     assert result.exit_code == 0, result.output
-    return out.joinpath(*PLUGIN)
+    return out
 
 
 def _write_golden(snapshot: dict[str, bytes]) -> None:
@@ -59,10 +63,15 @@ def _agent_frontmatter(agent_md: Path) -> dict[str, object]:
 
 
 @pytest.fixture(scope="module")
-def plugin_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def out(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Emit the example pack once for the behaviour assertions below."""
 
     return _emit(tmp_path_factory.mktemp("emit"))
+
+
+@pytest.fixture(scope="module")
+def plugin_root(out: Path) -> Path:
+    return out.joinpath(*PLUGIN)
 
 
 def test_example_matches_golden(tmp_path: Path) -> None:
@@ -78,20 +87,27 @@ def test_example_matches_golden(tmp_path: Path) -> None:
     assert emitted == _snapshot(GOLDEN)
 
 
-def test_transitive_skill_closure(plugin_root: Path) -> None:
-    # test-analysis is reachable only through code-review's SKILL.md frontmatter.
+def test_every_declared_skill_is_emitted(plugin_root: Path) -> None:
+    # No agent lists test-analysis; it ships because the crewfile declares it.
     assert (plugin_root / "skills" / "test-analysis" / "SKILL.md").is_file()
-    # Dependency-first order: the transitive dep precedes the skill that pulls it.
+    # The agent file lists only the skills the agent declares.
     meta = _agent_frontmatter(plugin_root / "agents" / "reviewer.md")
-    assert meta["skills"] == "test-analysis, code-review"
+    assert meta["skills"] == "code-review"
 
 
-def test_shared_mcp_is_deduped(plugin_root: Path) -> None:
-    servers = yaml.safe_load((plugin_root / ".mcp.json").read_text())["mcpServers"]
-    # Both skills depend on github; the resolver collapses it to one entry.
+def test_mcps_are_user_scoped(out: Path, plugin_root: Path) -> None:
+    assert not (plugin_root / ".mcp.json").exists()
+    servers = yaml.safe_load((out / ".claude.json").read_text())["mcpServers"]
     assert list(servers) == ["github"]
     meta = _agent_frontmatter(plugin_root / "agents" / "reviewer.md")
     assert str(meta["tools"]).split(", ").count("mcp__github") == 1
+
+
+def test_instructions_are_a_managed_block(out: Path) -> None:
+    text = (out / ".claude" / "CLAUDE.md").read_text()
+    assert text.startswith("<!-- crewspec:code-review-crew:begin -->\n")
+    assert text.endswith("<!-- crewspec:code-review-crew:end -->\n")
+    assert (EXAMPLE / "instructions.md").read_text().rstrip("\n") in text
 
 
 def test_references_dir_copied(plugin_root: Path) -> None:

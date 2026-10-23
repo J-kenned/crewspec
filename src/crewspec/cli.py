@@ -21,7 +21,6 @@ from crewspec.installed import InstalledPack, list_installed
 from crewspec.parser import CrewfileError, resolve_crewfile
 from crewspec.pipeline import InstallSummary, build_ir, install
 from crewspec.plan import render_json, render_tree
-from crewspec.resolver import ResolveError
 from crewspec.sources import (
     SourceError,
     SourceSpecError,
@@ -74,7 +73,7 @@ def install_cmd(source: str, target: str, out: Path, dry_run: bool) -> None:
             summary = install(crewfile, EMITTERS[target](), out, dry_run=dry_run)
     except SourceSpecError as exc:
         raise click.BadParameter(str(exc), param_hint="'SOURCE'") from exc
-    except (SourceError, CrewfileError, ResolveError, EmitError) as exc:
+    except (SourceError, CrewfileError, EmitError) as exc:
         raise click.ClickException(str(exc)) from exc
 
     _echo_summary(summary, dry_run=dry_run)
@@ -92,8 +91,8 @@ def validate_cmd(source: str, as_json: bool) -> None:
     """Resolve SOURCE and print the resolved plan, writes no files.
 
     Runs the same parse + resolve as ``install`` but stops before emission and
-    prints the resolved per-agent capabilities, the deduplicated MCP set, and any
-    warnings. Exits non-zero on any parse or resolve error.
+    prints the pack name, each agent's tools and skills, every skill and MCP
+    server, and any warnings. Exits non-zero on any parse error.
 
     SOURCE is a local crewfile (``.crewfile`` / ``crewspec.yaml``) or a directory
     containing one, or a ``github:owner/repo[@ref][/subdir]`` shorthand.
@@ -110,7 +109,7 @@ def validate_cmd(source: str, as_json: bool) -> None:
                 ir = build_ir(crewfile)
     except SourceSpecError as exc:
         raise click.BadParameter(str(exc), param_hint="'SOURCE'") from exc
-    except (SourceError, CrewfileError, ResolveError) as exc:
+    except (SourceError, CrewfileError) as exc:
         raise click.ClickException(str(exc)) from exc
 
     messages = [str(entry.message) for entry in caught]
@@ -122,6 +121,37 @@ def validate_cmd(source: str, as_json: bool) -> None:
         click.echo(render_json(ir))
     else:
         click.echo(render_tree(ir, messages))
+
+
+@cli.command("uninstall")
+@click.argument("name")
+@click.option(
+    "--target",
+    type=click.Choice(sorted(EMITTERS)),
+    default="claude",
+    show_default=True,
+    help="Target the pack was installed for.",
+)
+@click.option(
+    "--out",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("."),
+    show_default=True,
+    help="Directory crewspec installed into.",
+)
+def uninstall_cmd(name: str, target: str, out: Path) -> None:
+    """Remove the pack NAME installed under --out for --target.
+
+    Deletes the pack's plugin directory and everything crewspec wrote for it
+    outside that directory (its MCP servers and instructions block on Claude,
+    its marketplace entry on Codex). Nothing else is touched.
+    """
+
+    try:
+        EMITTERS[target]().uninstall(name, out)
+    except EmitError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Uninstalled {name} (target: {target})")
 
 
 @cli.command("list")
@@ -147,9 +177,9 @@ def validate_cmd(source: str, as_json: bool) -> None:
 def list_cmd(out: Path, target: str | None, as_json: bool) -> None:
     """List the crewspec packs installed under --out.
 
-    Reads the plugin trees ``install`` emitted and prints each target's plugin
-    path, agents, skills, and MCP servers. Nothing is resolved or written. An
-    empty listing is a valid answer and exits 0.
+    Reads the plugin trees ``install`` emitted and prints each pack's name,
+    plugin path, agents, skills, and MCP servers. Nothing is resolved or
+    written. An empty listing is a valid answer and exits 0.
     """
 
     packs = list_installed(out, [target] if target else ())
@@ -162,6 +192,7 @@ def list_cmd(out: Path, target: str | None, as_json: bool) -> None:
     if as_json:
         rows = [
             {
+                "name": pack.name,
                 "target": pack.target,
                 "path": pack.path.as_posix(),
                 "agents": list(pack.agents),
@@ -194,7 +225,7 @@ def _echo_summary(summary: InstallSummary, *, dry_run: bool) -> None:
 def _echo_packs(packs: list[InstalledPack]) -> None:
     width = max(len(pack.target) for pack in packs)
     for pack in packs:
-        click.echo(f"{pack.target:<{width}}  {pack.path.as_posix()}")
+        click.echo(f"{pack.target:<{width}}  {pack.name}  {pack.path.as_posix()}")
         skills = ", ".join(pack.skills) or "(none)"
         if pack.target == CodexEmitter.name:
             # Codex has no agents directory; the emitter folds each agent into

@@ -1,8 +1,15 @@
 version: "0.1"
+name: code-review-crew
 
-# A single-agent code-review crew. The reviewer depends on one skill;
-# everything else — the transitive skill and the shared MCP — is pulled in
-# through each skill's SKILL.md `x-crewspec` frontmatter (the dependency floor).
+# Global instructions. On the Claude target this file becomes a managed block
+# in ~/.claude/CLAUDE.md (between crewspec markers); nothing else in that
+# file is touched.
+instructions: instructions.md
+
+# A single-agent code-review crew. The reviewer lists the skill its agent file
+# should name; every skill under `skills:` and every server under `mcps:` is
+# installed regardless. Dependency edges (here and in each skill's
+# `x-crewspec` frontmatter) are reference checks: an unknown name is an error.
 agents:
   reviewer:
     persona: agents/reviewer.md
@@ -18,8 +25,8 @@ skills:
   test-analysis:
     path: skills/test-analysis
 
-# One MCP, depended on by both skills. The resolver dedups it to a single entry
-# in the emitted plugin. The token is kept out of the spec via a secret
+# MCP servers are global: each one is merged into the user-scope config
+# (~/.claude.json on Claude). The token is kept out of the spec via a secret
 # reference; the launcher injects GITHUB_TOKEN at runtime.
 mcps:
   github:

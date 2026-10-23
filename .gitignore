@@ -9,6 +9,9 @@ wheels/
 .venv
 .idea/
 
-# Golden fixtures capture the full emitted plugin tree, including the .mcp.json
-# a global ignore may exclude. Keep the checked-in goldens tracked regardless.
-!tests/golden/**/.mcp.json
+# Golden fixtures capture everything the Claude target writes, including the
+# .claude/ tree and .claude.json a global ignore may exclude. Keep the
+# checked-in goldens tracked regardless.
+!tests/golden/**/.claude/
+!tests/golden/**/.claude.json
+!tests/golden/**/CLAUDE.md

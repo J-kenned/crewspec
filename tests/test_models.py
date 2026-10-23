@@ -18,11 +18,13 @@ _mcp_adapter: TypeAdapter[McpServer] = TypeAdapter(McpServer)
 
 FULL_DOC = {
     "version": "0.1",
+    "name": "review-pack",
+    "instructions": "instructions.md",
     "agents": {
         "reviewer": {
             "persona": "personas/reviewer.md",
             "allowed_tools": ["Read", "Edit", "mcp__linear__*"],
-            "depends_on": {"skills": ["lint"], "mcps": ["github"]},
+            "depends_on": {"skills": ["lint"]},
         }
     },
     "skills": {
@@ -41,6 +43,8 @@ FULL_DOC = {
 def test_full_doc_parses() -> None:
     doc = CrewDoc.model_validate(FULL_DOC)
     assert doc.version == "0.1"
+    assert doc.name == "review-pack"
+    assert doc.instructions == "instructions.md"
     assert isinstance(doc.mcps["github"], StdioMcpServer)
     assert isinstance(doc.mcps["remote"], HttpMcpServer)
     assert doc.agents["reviewer"].depends_on.skills == ["lint"]
@@ -48,10 +52,30 @@ def test_full_doc_parses() -> None:
 
 
 def test_minimal_doc_defaults() -> None:
-    doc = CrewDoc.model_validate({"version": "0.1"})
+    doc = CrewDoc.model_validate({"version": "0.1", "name": "x"})
+    assert doc.instructions is None
     assert doc.agents == {}
     assert doc.skills == {}
     assert doc.mcps == {}
+
+
+def test_name_is_required() -> None:
+    with pytest.raises(ValidationError) as exc:
+        CrewDoc.model_validate({"version": "0.1"})
+    assert exc.value.errors()[0]["loc"] == ("name",)
+
+
+@pytest.mark.parametrize("name", ["Review", "-lead", "my pack", "a_b", ""])
+def test_name_must_be_lowercase_digits_and_hyphens(name: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        CrewDoc.model_validate({"version": "0.1", "name": name})
+    assert exc.value.errors()[0]["loc"] == ("name",)
+
+
+def test_agent_depends_on_rejects_mcps() -> None:
+    with pytest.raises(ValidationError) as exc:
+        AgentDef.model_validate({"persona": "p.md", "depends_on": {"mcps": ["g"]}})
+    assert exc.value.errors()[0]["loc"] == ("depends_on", "mcps")
 
 
 def test_mcp_discriminates_on_type() -> None:

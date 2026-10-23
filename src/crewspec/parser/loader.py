@@ -2,7 +2,8 @@
 
 The loader is the bridge from YAML on disk to a validated, in-memory graph the
 resolver consumes. It validates the document against :class:`CrewDoc`, resolves
-artifact pointers relative to the crewfile's directory, merges each skill's
+artifact pointers (personas, skill directories, the optional ``instructions``
+file) relative to the crewfile's directory, merges each skill's
 crewfile-declared deps with the deps declared in its ``SKILL.md`` frontmatter,
 and verifies every ``depends_on`` reference resolves to a defined node.
 
@@ -88,6 +89,8 @@ def load_crewfile(path: str | Path) -> LoadedCrew:
 
     doc = _parse_doc(crewfile)
     registry = NodeRegistry(
+        name=doc.name,
+        instructions=_load_instructions(doc, root, crewfile),
         agents=_load_agents(doc, root, crewfile),
         skills=_load_skills(doc, root, crewfile),
         mcps=dict(doc.mcps),
@@ -125,6 +128,12 @@ def _parse_doc(crewfile: Path) -> CrewDoc:
                 f"`{key}` is not supported yet; see Not in V1 in the README",
                 path=crewfile,
             )
+    if "name" not in raw:
+        raise CrewfileSyntaxError(
+            "top-level `name` is required: lowercase letters, digits, and hyphens",
+            path=crewfile,
+        )
+    _reject_agent_mcps(raw, crewfile)
 
     try:
         return CrewDoc.model_validate(raw)
@@ -132,6 +141,37 @@ def _parse_doc(crewfile: Path) -> CrewDoc:
         raise CrewfileSyntaxError(
             f"does not match the crewspec schema:\n{exc}", path=crewfile
         ) from exc
+
+
+def _reject_agent_mcps(raw: dict[str, object], crewfile: Path) -> None:
+    """Fail a legacy ``agents.<x>.depends_on.mcps`` with a migration hint.
+
+    ``extra="forbid"`` would reject the key too, but with a generic pydantic
+    message; this one says what changed and what to do.
+    """
+
+    agents = raw.get("agents")
+    if not isinstance(agents, dict):
+        return
+    for name, agent in agents.items():
+        deps = agent.get("depends_on") if isinstance(agent, dict) else None
+        if isinstance(deps, dict) and "mcps" in deps:
+            raise CrewfileSyntaxError(
+                f"agents.{name}.depends_on.mcps is no longer supported: MCPs are "
+                "global and every server under `mcps:` is installed; delete the key",
+                path=crewfile,
+            )
+
+
+def _load_instructions(doc: CrewDoc, root: Path, crewfile: Path) -> Path | None:
+    if doc.instructions is None:
+        return None
+    path = root / doc.instructions
+    if not path.is_file():
+        raise MissingArtifactError(
+            f"instructions file '{doc.instructions}' does not exist", path=crewfile
+        )
+    return path
 
 
 def _load_agents(doc: CrewDoc, root: Path, crewfile: Path) -> dict[str, AgentNode]:
@@ -201,7 +241,6 @@ def _validate_references(registry: NodeRegistry, crewfile: Path) -> None:
     for name, agent in registry.agents.items():
         deps = agent.definition.depends_on
         _check(registry.skills, deps.skills, crewfile, "agents", name, "skills")
-        _check(registry.mcps, deps.mcps, crewfile, "agents", name, "mcps")
 
     for name, skill in registry.skills.items():
         _check(registry.skills, skill.deps.skills, crewfile, "skills", name, "skills")

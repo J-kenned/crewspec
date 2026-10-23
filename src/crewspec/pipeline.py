@@ -37,8 +37,7 @@ def build_ir(crewfile: Path) -> ResolvedIR:
     """Parse and resolve ``crewfile`` into the target-agnostic IR.
 
     Raises a :class:`~crewspec.parser.errors.CrewfileError` subclass on a parse
-    failure and a :class:`~crewspec.resolver.errors.ResolveError` on a resolve
-    failure — the caller maps each to an exit code.
+    failure — the caller maps it to an exit code.
     """
 
     loaded = load_crewfile(crewfile)
@@ -62,15 +61,14 @@ def install(
     if dry_run:
         return _summarize(ir, emitter.name, out=None)
     emitter.emit(ir, dest)
-    return _summarize(ir, emitter.name, out=emitter.output_path(dest))
+    return _summarize(ir, emitter.name, out=emitter.output_path(dest, ir.name))
 
 
 def _summarize(ir: ResolvedIR, target: str, *, out: Path | None) -> InstallSummary:
-    skills = {skill.name for agent in ir.agents for skill in agent.skills}
     return InstallSummary(
         target=target,
         agents=len(ir.agents),
-        skills=len(skills),
+        skills=len(ir.skills),
         mcps=len(ir.mcps),
         out=out,
     )

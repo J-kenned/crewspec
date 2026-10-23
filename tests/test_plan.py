@@ -10,7 +10,7 @@ from crewspec.plan import render_json, render_tree
 
 
 def _ir() -> ResolvedIR:
-    """A two-agent IR: ``base`` is bare, ``reviewer`` owns the whole closure."""
+    """A two-agent IR: ``base`` is bare, ``reviewer`` lists both skills."""
 
     github = ResolvedMcp(
         name="github", server=StdioMcpServer(command="gh-mcp", args=["serve"])
@@ -29,20 +29,23 @@ def _ir() -> ResolvedIR:
         persona_path=Path("agents/reviewer.md"),
         tools=("Read", "Edit"),
         skills=(fmt, lint),
-        mcps=(github,),
     )
-    return ResolvedIR(agents=(base, reviewer), mcps=(github,))
+    return ResolvedIR(
+        name="review-pack", agents=(base, reviewer), skills=(fmt, lint), mcps=(github,)
+    )
 
 
-def test_render_tree_reflects_ir_order_and_dedup() -> None:
+def test_render_tree_reflects_ir_order() -> None:
     out = render_tree(_ir())
 
+    assert out.startswith("crewspec plan: review-pack — 2 agents, 2 skills, 1 mcp")
     # Agents are printed in the order the IR carries them (crewfile order).
     assert out.index("• base") < out.index("• reviewer")
-    # The skill closure is printed dependency-first, verbatim from the IR.
+    # The agent's declared skills, verbatim from the IR.
     assert "skills:   format, lint" in out
-    # The global set is labelled as the deduplicated union with its transport.
-    assert "mcp servers (deduplicated): 1" in out
+    # Every declared skill and MCP server, with the server's transport.
+    assert "skills:\n  • format — skills/format\n  • lint — skills/lint" in out
+    assert "mcp servers: 1" in out
     assert "github — stdio (gh-mcp serve)" in out
 
 
@@ -58,19 +61,21 @@ def test_render_tree_lists_warnings_or_none() -> None:
 
 def test_render_tree_summarizes_remote_mcp() -> None:
     ir = ResolvedIR(
+        name="remote",
         mcps=(
             ResolvedMcp(
                 name="api", server=HttpMcpServer(url="https://example.test/mcp")
             ),
-        )
+        ),
     )
     assert "api — http (https://example.test/mcp)" in render_tree(ir)
 
 
 def test_render_tree_handles_empty_ir() -> None:
-    out = render_tree(ResolvedIR())
-    assert "crewspec plan: 0 agents, 0 skills, 0 mcp servers" in out
+    out = render_tree(ResolvedIR(name="empty"))
+    assert "crewspec plan: empty — 0 agents, 0 skills, 0 mcp servers" in out
     assert "agents:\n  (none)" in out
+    assert "skills:\n  (none)" in out
 
 
 def test_render_json_round_trips_into_ir() -> None:

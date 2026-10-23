@@ -1,7 +1,6 @@
-"""Resolve agent packs and their dependencies."""
+"""Resolve agent packs into the IR."""
 
-from crewspec.resolver.errors import ConflictError, CycleError, ResolveError
-from crewspec.resolver.resolve import merge_mcps, merge_skills, resolve
+from crewspec.resolver.resolve import resolve
 from crewspec.resolver.secrets import (
     ResolvedServer,
     SecretBinding,
@@ -14,9 +13,6 @@ from crewspec.resolver.secrets import (
 )
 
 __all__ = [
-    "ConflictError",
-    "CycleError",
-    "ResolveError",
     "ResolvedServer",
     "SecretBinding",
     "SecretError",
@@ -24,8 +20,6 @@ __all__ = [
     "SecretPermission",
     "SecretResolver",
     "SecretUnreadable",
-    "merge_mcps",
-    "merge_skills",
     "resolve",
     "resolve_server",
 ]

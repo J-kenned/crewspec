@@ -5,9 +5,8 @@ CLI so the click layer stays thin and the rendering is unit-testable on its own.
 Two views share one IR: a human-readable tree (:func:`render_tree`) and the raw
 IR serialization (:func:`render_json`) for scripted use.
 
-The IR arrives already ordered — ``agents`` in crewfile order, each agent's
-``skills``/``mcps`` dependency-first and deduplicated — so rendering is a straight
-walk that never re-derives order.
+The IR arrives already ordered (agents, skills, and MCPs in crewfile order) so
+rendering is a straight walk that never re-derives order.
 """
 
 from __future__ import annotations
@@ -32,8 +31,9 @@ def render_json(ir: ResolvedIR) -> str:
 def render_tree(ir: ResolvedIR, warnings: Sequence[str] = ()) -> str:
     """Render the resolved plan as a human-readable tree.
 
-    Lists agents in crewfile order with their resolved capabilities, then the
-    global deduplicated MCP set, then any ``warnings`` captured during resolution.
+    Lists the pack name, agents in crewfile order with their tools and skills,
+    every declared skill, every MCP server, then any ``warnings`` captured
+    during resolution.
     """
 
     lines: list[str] = [_header(ir), "", "agents:"]
@@ -43,7 +43,13 @@ def render_tree(ir: ResolvedIR, warnings: Sequence[str] = ()) -> str:
     else:
         lines.append("  (none)")
 
-    lines += ["", f"mcp servers (deduplicated): {len(ir.mcps)}"]
+    lines += ["", "skills:"]
+    if ir.skills:
+        lines += [f"  • {s.name} — {_display_path(s.path)}" for s in ir.skills]
+    else:
+        lines.append("  (none)")
+
+    lines += ["", f"mcp servers: {len(ir.mcps)}"]
     if ir.mcps:
         lines += [f"  • {mcp.name} — {_mcp_summary(mcp)}" for mcp in ir.mcps]
     else:
@@ -59,11 +65,10 @@ def render_tree(ir: ResolvedIR, warnings: Sequence[str] = ()) -> str:
 
 
 def _header(ir: ResolvedIR) -> str:
-    skills = {skill.name for agent in ir.agents for skill in agent.skills}
     return (
-        "crewspec plan: "
+        f"crewspec plan: {ir.name} — "
         f"{_count(len(ir.agents), 'agent')}, "
-        f"{_count(len(skills), 'skill')}, "
+        f"{_count(len(ir.skills), 'skill')}, "
         f"{_count(len(ir.mcps), 'mcp server')}"
     )
 
@@ -80,7 +85,6 @@ def _agent_lines(agent: ResolvedAgent) -> list[str]:
         f"      persona:  {_display_path(agent.persona_path)}",
         f"      tools:    {', '.join(agent.tools) or '(inherit all)'}",
         f"      skills:   {', '.join(s.name for s in agent.skills) or '(none)'}",
-        f"      mcps:     {', '.join(m.name for m in agent.mcps) or '(none)'}",
     ]
 
 

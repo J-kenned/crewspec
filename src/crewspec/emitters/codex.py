@@ -11,6 +11,11 @@ Instead, each resolved agent is emitted as a Codex skill that contains the
 persona instructions plus the resolved skill/MCP wiring. The source skills are
 copied alongside those generated agent skills so Codex can load them through the
 normal skill mechanism.
+
+MCP servers stay in the plugin's ``.mcp.json`` and ``instructions`` is not
+written for this target. Mirroring the Claude target's user-scope outputs
+(``~/.codex/AGENTS.md`` and ``[mcp_servers.*]`` in ``config.toml``) is a
+follow-up.
 """
 
 from __future__ import annotations
@@ -23,14 +28,14 @@ from pathlib import Path
 import yaml
 
 from crewspec import __version__
-from crewspec.emitters.base import Emitter
+from crewspec.emitters.base import Emitter, PackState
 from crewspec.emitters.claude import (
     _SKILL_COPY_IGNORE,
     _normalize_skill_md,
     _split_frontmatter,
 )
 from crewspec.emitters.errors import EmitError, MissingPersonaDescription
-from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
+from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
 
@@ -39,21 +44,15 @@ class CodexEmitter(Emitter):
     """Render the crewspec IR into a repo-local Codex plugin under ``dest``."""
 
     name = "codex"
+    plugins_dir = ("plugins",)
+    meta_dir = ".codex-plugin"
 
-    #: Plugin directory, relative to ``dest``. crewspec owns this subtree.
-    plugin_path = ("plugins", "crewspec")
     #: Repo-local marketplace file, relative to ``dest``.
     marketplace_path = (".agents", "plugins", "marketplace.json")
-    #: The plugin's ``name`` in its ``plugin.json`` manifest.
-    plugin_name = "crewspec"
     mcp_file = ".mcp.json"
 
-    def output_path(self, dest: Path) -> Path:
-        """The plugin root under ``dest`` that crewspec owns and writes into."""
-        return dest.joinpath(*self.plugin_path)
-
     def emit(self, ir: ResolvedIR, dest: Path) -> None:
-        plugin_root = self.output_path(dest)
+        plugin_root = self.output_path(dest, ir.name)
 
         # crewspec owns the plugin subtree. The marketplace file is merged
         # separately because other local plugins may share that catalog.
@@ -61,27 +60,43 @@ class CodexEmitter(Emitter):
             shutil.rmtree(plugin_root)
         plugin_root.mkdir(parents=True)
 
-        self._write_manifest(plugin_root, has_mcps=bool(ir.mcps))
-        self._copy_skills(plugin_root, ir.agents)
+        self._write_manifest(plugin_root, ir.name, has_mcps=bool(ir.mcps))
+        self._copy_skills(plugin_root, ir)
         for agent in ir.agents:
-            self._write_agent_skill(plugin_root, agent)
+            self._write_agent_skill(plugin_root, agent, ir.mcps)
         self._write_mcp(plugin_root, ir.mcps)
-        self._write_marketplace(dest)
+        self._write_marketplace(dest, ir.name)
+        PackState(name=ir.name, mcps=tuple(m.name for m in ir.mcps)).write(
+            self.state_path(dest, ir.name)
+        )
 
-    def _write_manifest(self, plugin_root: Path, *, has_mcps: bool) -> None:
+    def uninstall(self, pack: str, dest: Path) -> None:
+        self.read_state(dest, pack)
+        marketplace_file = dest.joinpath(*self.marketplace_path)
+        if marketplace_file.exists():
+            marketplace = _read_marketplace(marketplace_file)
+            plugins = marketplace.get("plugins")
+            if isinstance(plugins, list):
+                marketplace["plugins"] = [
+                    item for item in plugins if not _is_plugin_entry(item, pack)
+                ]
+                marketplace_file.write_text(json.dumps(marketplace, indent=2) + "\n")
+        shutil.rmtree(self.output_path(dest, pack))
+
+    def _write_manifest(self, plugin_root: Path, name: str, *, has_mcps: bool) -> None:
         manifest: dict[str, object] = {
-            "name": self.plugin_name,
+            "name": name,
             "version": __version__,
             "description": "Generated crewspec workflows for Codex.",
             "skills": "./skills/",
             "interface": {
-                "displayName": "crewspec",
+                "displayName": name,
                 "shortDescription": "Generated crewspec workflows",
                 "longDescription": (
                     "Generated Codex plugin containing crewspec agent workflows, "
                     "skills, and MCP server configuration."
                 ),
-                "developerName": "crewspec",
+                "developerName": name,
                 "category": "Developer Tools",
                 "capabilities": ["Read", "Write"],
             },
@@ -89,20 +104,13 @@ class CodexEmitter(Emitter):
         if has_mcps:
             manifest["mcpServers"] = "./" + self.mcp_file
 
-        path = plugin_root / ".codex-plugin" / "plugin.json"
+        path = plugin_root / self.meta_dir / "plugin.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(manifest, indent=2) + "\n")
 
-    def _copy_skills(
-        self, plugin_root: Path, agents: tuple[ResolvedAgent, ...]
-    ) -> None:
-        skills: dict[str, ResolvedSkill] = {}
-        for agent in agents:
-            for skill in agent.skills:
-                skills.setdefault(skill.name, skill)
-
-        agent_names = {agent.name for agent in agents}
-        conflicts = sorted(agent_names & set(skills))
+    def _copy_skills(self, plugin_root: Path, ir: ResolvedIR) -> None:
+        agent_names = {agent.name for agent in ir.agents}
+        conflicts = sorted(agent_names & {skill.name for skill in ir.skills})
         if conflicts:
             joined = ", ".join(conflicts)
             raise EmitError(
@@ -110,12 +118,14 @@ class CodexEmitter(Emitter):
                 f"must not collide; conflicting name(s): {joined}"
             )
 
-        for skill in skills.values():
+        for skill in ir.skills:
             dest_dir = plugin_root / "skills" / skill.name
             shutil.copytree(skill.path, dest_dir, ignore=_SKILL_COPY_IGNORE)
             _normalize_skill_md(dest_dir)
 
-    def _write_agent_skill(self, plugin_root: Path, agent: ResolvedAgent) -> None:
+    def _write_agent_skill(
+        self, plugin_root: Path, agent: ResolvedAgent, mcps: tuple[ResolvedMcp, ...]
+    ) -> None:
         description, body = self._read_persona(agent)
         frontmatter = {"name": agent.name, "description": description}
         block = yaml.safe_dump(
@@ -123,7 +133,7 @@ class CodexEmitter(Emitter):
         )
 
         text = f"---\n{block}---\n\n" + body.lstrip("\n")
-        wiring = _agent_wiring(agent)
+        wiring = _agent_wiring(agent, mcps)
         if wiring:
             text = text.rstrip() + "\n\n" + wiring
 
@@ -156,7 +166,7 @@ class CodexEmitter(Emitter):
         path = plugin_root / self.mcp_file
         path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")
 
-    def _write_marketplace(self, dest: Path) -> None:
+    def _write_marketplace(self, dest: Path, name: str) -> None:
         path = dest.joinpath(*self.marketplace_path)
         marketplace = _read_marketplace(path)
         marketplace["name"] = marketplace.get("name") or "local-repo"
@@ -165,22 +175,20 @@ class CodexEmitter(Emitter):
             raise EmitError(f"Codex marketplace '{path}' has non-list 'plugins'")
 
         entry = {
-            "name": self.plugin_name,
+            "name": name,
             "source": {
                 "source": "local",
-                "path": "./" + "/".join(self.plugin_path),
+                "path": "./" + "/".join((*self.plugins_dir, name)),
             },
             "policy": {
                 "installation": "AVAILABLE",
                 "authentication": "ON_INSTALL",
             },
             "category": "Developer Tools",
-            "interface": {"displayName": "crewspec"},
+            "interface": {"displayName": name},
         }
 
-        kept = [
-            item for item in plugins if not _is_plugin_entry(item, self.plugin_name)
-        ]
+        kept = [item for item in plugins if not _is_plugin_entry(item, name)]
         kept.append(entry)
         marketplace["plugins"] = kept
 
@@ -188,7 +196,7 @@ class CodexEmitter(Emitter):
         path.write_text(json.dumps(marketplace, indent=2) + "\n")
 
 
-def _agent_wiring(agent: ResolvedAgent) -> str:
+def _agent_wiring(agent: ResolvedAgent, mcps: tuple[ResolvedMcp, ...]) -> str:
     sections: list[str] = []
     if agent.skills:
         names = ", ".join(f"${skill.name}" for skill in agent.skills)
@@ -196,8 +204,8 @@ def _agent_wiring(agent: ResolvedAgent) -> str:
             "## crewspec Skill Wiring\n\n"
             f"Before doing this workflow, read and apply these bundled skills: {names}."
         )
-    if agent.mcps:
-        names = ", ".join(mcp.name for mcp in agent.mcps)
+    if mcps:
+        names = ", ".join(mcp.name for mcp in mcps)
         sections.append(
             "## crewspec MCP Wiring\n\n"
             f"Use these bundled MCP servers when the workflow needs them: {names}."

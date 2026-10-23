@@ -1,9 +1,9 @@
 """The in-memory node graph produced by the loader.
 
 The registry keys agents, skills, and MCP servers by name so the resolver
-can walk dependency edges without re-reading the disk. Each node pairs
-its source definition with the artifacts the emitter will copy and, for skills,
-the dependency set merged from the crewfile and ``SKILL.md`` frontmatter.
+can build the IR without re-reading the disk. Each node pairs its source
+definition with the artifacts the emitter will copy and, for skills, the
+dependency set merged from the crewfile and ``SKILL.md`` frontmatter.
 """
 
 from __future__ import annotations
@@ -43,8 +43,14 @@ class SkillNode:
 
 @dataclass(frozen=True)
 class NodeRegistry:
-    """All nodes in a loaded crew, keyed by name within each kind."""
+    """All nodes in a loaded crew, keyed by name within each kind.
 
+    ``name`` is the pack name and ``instructions`` the resolved path of the
+    optional global instructions file; both pass straight through to the IR.
+    """
+
+    name: str
+    instructions: Path | None = None
     agents: dict[str, AgentNode] = field(default_factory=dict)
     skills: dict[str, SkillNode] = field(default_factory=dict)
     mcps: dict[str, McpServer] = field(default_factory=dict)
