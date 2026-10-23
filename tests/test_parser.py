@@ -124,6 +124,19 @@ def test_instructions_resolves_against_crewfile_dir(tmp_path: Path) -> None:
     assert crew.registry.instructions == tmp_path / "docs" / "rules.md"
 
 
+@pytest.mark.parametrize(
+    "target", ["/etc/hosts", "../outside.md", "docs/../../outside.md"]
+)
+def test_instructions_must_stay_inside_the_pack(tmp_path: Path, target: str) -> None:
+    # Fix 9: a github: pack must not read arbitrary local files into CLAUDE.md.
+    crewfile = _build_min_crew(tmp_path)
+    _write(tmp_path.parent / "outside.md", "secret\n")
+    crewfile.write_text(crewfile.read_text() + f"instructions: {target}\n")
+
+    with pytest.raises(CrewfileSyntaxError, match="inside the pack"):
+        load_crewfile(crewfile)
+
+
 def test_missing_instructions_file_raises(tmp_path: Path) -> None:
     crewfile = _build_min_crew(tmp_path)
     crewfile.write_text(crewfile.read_text() + "instructions: docs/rules.md\n")

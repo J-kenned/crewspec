@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 from click.testing import CliRunner, Result
 
@@ -165,6 +166,20 @@ def test_legacy_agent_mcps_errors_with_explanation(tmp_path: Path) -> None:
     assert "MCPs are global" in result.stderr
 
 
+def test_install_rejects_mcp_owned_by_another_pack(tmp_path: Path) -> None:
+    # Fix 4: the example and the fixture both declare `github`.
+    example = Path(__file__).parent.parent / "examples" / "code-review-crew"
+    assert _run("install", str(example), "--out", str(tmp_path)).exit_code == 0
+
+    result = _run("install", str(FIXTURE), "--out", str(tmp_path))
+
+    assert result.exit_code == 1
+    assert "github" in result.stderr
+    assert "already installed by pack 'code-review-crew'" in result.stderr
+    assert "pack 'team'" in result.stderr
+    assert not tmp_path.joinpath(*PLUGIN).exists()
+
+
 def test_uninstall_removes_the_pack(tmp_path: Path) -> None:
     assert _run("install", str(FIXTURE), "--out", str(tmp_path)).exit_code == 0
 
@@ -195,6 +210,33 @@ def test_uninstall_unknown_name_errors(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "no pack 'ghost' is installed for claude" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("name", "target"), [(".", "claude"), ("../../../victim", "claude"), (".", "codex")]
+)
+def test_uninstall_rejects_path_like_names(
+    tmp_path: Path, name: str, target: str
+) -> None:
+    # Fix 1: `.` would have removed every skill under --out; `..` escaped it.
+    out = tmp_path / "out"
+    victim = tmp_path / "victim" / "keep.txt"
+    victim.parent.mkdir()
+    victim.write_text("keep\n")
+    install = _run("install", str(FIXTURE), "--target", target, "--out", str(out))
+    assert install.exit_code == 0, install.output
+    mine = out / ".claude" / "skills" / "mine" / "SKILL.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("mine\n")
+
+    result = _run("uninstall", name, "--target", target, "--out", str(out))
+
+    assert result.exit_code == 1
+    assert "is not a valid pack name" in result.stderr
+    assert mine.read_text() == "mine\n"
+    assert victim.read_text() == "keep\n"
+    plugin = PLUGIN if target == "claude" else CODEX_PLUGIN
+    assert out.joinpath(*plugin).is_dir()
 
 
 def test_validate_prints_resolved_plan() -> None:

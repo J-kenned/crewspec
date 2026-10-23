@@ -13,7 +13,8 @@ instructions: instructions.md
 agents:
   reviewer:
     persona: agents/reviewer.md
-    allowed_tools: [Read, Grep, Bash]
+    # MCP tools are granted here, per agent; nothing is added implicitly.
+    allowed_tools: [Read, Grep, Bash, "mcp__github__*"]
     depends_on:
       skills: [code-review]
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -86,7 +87,12 @@ def test_list_codex_pack_folds_agents_into_skills(tmp_path: Path) -> None:
 
 def test_list_finds_every_pack_for_a_target(tmp_path: Path) -> None:
     _install(tmp_path, "claude")
-    _install(tmp_path, "claude", FIXTURE)
+    # A second pack; its MCP is renamed so it does not collide with the first.
+    team = tmp_path / "team-src"
+    shutil.copytree(FIXTURE, team)
+    for rel in ("team.crewfile", "skills/lint/SKILL.md"):
+        (team / rel).write_text((team / rel).read_text().replace("github", "hub"))
+    _install(tmp_path, "claude", team)
     # A hand-made skill directory next to the packs is not a pack.
     (tmp_path / ".claude" / "skills" / "mine").mkdir()
     (tmp_path / ".claude" / "skills" / "mine" / "SKILL.md").write_text("mine\n")

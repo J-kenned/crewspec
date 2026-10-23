@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -9,9 +10,12 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from crewspec.emitters.errors import EmitError
 from crewspec.ir import ResolvedIR
+from crewspec.models.crew import NAME_PATTERN
 
 #: Name of the state file each emitter writes inside its plugin metadata dir.
 STATE_FILE = "crewspec.json"
+
+_NAME = re.compile(NAME_PATTERN)
 
 
 class PackState(BaseModel):
@@ -94,12 +98,36 @@ class Emitter(ABC):
     def read_state(self, dest: Path, pack: str) -> PackState:
         """The state for an installed ``pack``, raising when it is not installed.
 
-        A plugin directory without a state file (an install from before state
-        files existed) counts as installed and owning nothing outside itself.
+        This guards every ``uninstall``: ``pack`` must be a valid pack name (so
+        it cannot name ``.``, ``..``, or a path) and its state file must exist,
+        or nothing is removed. A plugin directory without a state file was not
+        written by this crewspec and is left alone.
         """
 
-        if not self.output_path(dest, pack).is_dir():
+        if not _NAME.fullmatch(pack):
+            raise EmitError(
+                f"'{pack}' is not a valid pack name "
+                "(lowercase letters, digits, and hyphens)"
+            )
+        state = PackState.read(self.state_path(dest, pack))
+        if state is None:
             raise EmitError(
                 f"no pack '{pack}' is installed for {self.name} under '{dest}'"
             )
-        return PackState.read(self.state_path(dest, pack)) or PackState(name=pack)
+        return state
+
+    def previous_state(self, dest: Path, pack: str) -> PackState | None:
+        """What a previous install of ``pack`` left, or ``None`` for a fresh one.
+
+        Raises when the plugin directory exists without a state file: crewspec
+        did not write it, so ``emit`` may not wipe it.
+        """
+
+        state = PackState.read(self.state_path(dest, pack))
+        root = self.output_path(dest, pack)
+        if state is None and root.exists():
+            raise EmitError(
+                f"'{root}' exists but was not written by crewspec "
+                f"(no {self.meta_dir}/{STATE_FILE}); move or delete it first"
+            )
+        return state

@@ -23,7 +23,9 @@ emitter can reuse :class:`~crewspec.emitters.base.Emitter` untouched.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -31,7 +33,7 @@ import yaml
 
 from crewspec.emitters.base import Emitter, PackState
 from crewspec.emitters.errors import EmitError, MissingPersonaDescription
-from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
+from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedSkill
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
 
@@ -53,8 +55,19 @@ class ClaudeEmitter(Emitter):
 
     def emit(self, ir: ResolvedIR, dest: Path) -> None:
         plugin_root = self.output_path(dest, ir.name)
-        # Read what the previous install owned before the wipe takes it away.
-        previous = PackState.read(self.state_path(dest, ir.name))
+        config_path = dest / _USER_CONFIG
+        instructions_path = dest.joinpath(*_INSTRUCTIONS)
+
+        # Validate every input and read every file this install touches before
+        # changing anything, so a failure leaves the previous install, and its
+        # record of what it owns, exactly as it was.
+        previous = self.previous_state(dest, ir.name)
+        agents = [(agent, self._read_persona(agent)) for agent in ir.agents]
+        servers = {mcp.name: _server_dict(mcp.server) for mcp in ir.mcps}
+        self._check_mcp_ownership(dest, ir.name, servers)
+        stale = previous.mcps if previous else ()
+        config = _merged_config(config_path, servers, stale)
+        instructions = _merged_instructions(instructions_path, ir.name, ir.instructions)
 
         # crewspec owns this subtree: wipe and regenerate so re-emission is
         # byte-identical and never leaves a stale agent/skill behind.
@@ -62,32 +75,54 @@ class ClaudeEmitter(Emitter):
             shutil.rmtree(plugin_root)
         plugin_root.mkdir(parents=True)
 
-        self._write_manifest(plugin_root, ir.name)
-        for agent in ir.agents:
-            self._write_agent(plugin_root, agent, ir.mcps)
-        self._copy_skills(plugin_root, ir.skills)
-
-        servers = {mcp.name: _server_dict(mcp.server) for mcp in ir.mcps}
-        stale = previous.mcps if previous else ()
-        _merge_mcp_servers(dest / _USER_CONFIG, servers, stale)
-
-        instructions = dest.joinpath(*_INSTRUCTIONS)
-        if ir.instructions is not None:
-            _write_block(instructions, ir.name, ir.instructions.read_text())
-        else:
-            _remove_block(instructions, ir.name)
-
+        # State first: from here on the pack owns what it is about to write.
         PackState(
             name=ir.name,
             mcps=tuple(servers),
             instructions=ir.instructions is not None,
         ).write(self.state_path(dest, ir.name))
+        if config is not None:
+            _write_atomic(config_path, config)
+        if instructions is not None:
+            _write_atomic(instructions_path, instructions)
+
+        self._write_manifest(plugin_root, ir.name)
+        for agent, (description, body) in agents:
+            self._write_agent(plugin_root, agent, description, body)
+        self._copy_skills(plugin_root, ir.skills)
 
     def uninstall(self, pack: str, dest: Path) -> None:
         state = self.read_state(dest, pack)
-        _merge_mcp_servers(dest / _USER_CONFIG, {}, state.mcps)
-        _remove_block(dest.joinpath(*_INSTRUCTIONS), pack)
+        config_path = dest / _USER_CONFIG
+        instructions_path = dest.joinpath(*_INSTRUCTIONS)
+        config = _merged_config(config_path, {}, state.mcps)
+        instructions = _merged_instructions(instructions_path, pack, None)
+
+        if config is not None:
+            _write_atomic(config_path, config)
+        if instructions is not None:
+            _write_atomic(instructions_path, instructions)
         shutil.rmtree(self.output_path(dest, pack))
+
+    def _check_mcp_ownership(
+        self, dest: Path, pack: str, servers: dict[str, dict[str, object]]
+    ) -> None:
+        """Refuse an MCP key another installed pack already owns.
+
+        Two packs writing the same ``mcpServers`` key would silently overwrite
+        each other and the first ``uninstall`` would delete the survivor's entry.
+        """
+
+        for root in self.installed(dest):
+            if root.name == pack:
+                continue
+            other = PackState.read(self.state_path(dest, root.name))
+            taken = sorted(set(other.mcps if other else ()) & set(servers))
+            if taken:
+                raise EmitError(
+                    f"MCP server(s) {', '.join(taken)} already installed by pack "
+                    f"'{root.name}'; pack '{pack}' cannot install them too"
+                )
 
     def _write_manifest(self, plugin_root: Path, name: str) -> None:
         manifest = {"name": name, "description": "Generated by crewspec."}
@@ -96,19 +131,21 @@ class ClaudeEmitter(Emitter):
         path.write_text(json.dumps(manifest, indent=2) + "\n")
 
     def _write_agent(
-        self, plugin_root: Path, agent: ResolvedAgent, mcps: tuple[ResolvedMcp, ...]
+        self, plugin_root: Path, agent: ResolvedAgent, description: str, body: str
     ) -> None:
-        description, body = self._read_persona(agent)
-
         # Field order is fixed for stable, scannable output. ``mcpServers`` is
         # deliberately absent: plugin-shipped agents may not declare it, so the
         # servers live in the user-scope .claude.json instead.
-        frontmatter: dict[str, str] = {"name": agent.name, "description": description}
-        tools = self._tools_field(agent, mcps)
-        if tools is not None:
-            frontmatter["tools"] = tools
+        frontmatter: dict[str, object] = {
+            "name": agent.name,
+            "description": description,
+        }
+        if agent.tools:
+            # Exactly what the crewfile grants. An MCP's tools are reachable
+            # only when the agent lists them here (e.g. ``mcp__github__*``).
+            frontmatter["tools"] = ", ".join(agent.tools)
         if agent.skills:
-            frontmatter["skills"] = ", ".join(skill.name for skill in agent.skills)
+            frontmatter["skills"] = [skill.name for skill in agent.skills]
 
         block = yaml.safe_dump(
             frontmatter, sort_keys=False, allow_unicode=True, width=1000
@@ -119,24 +156,8 @@ class ClaudeEmitter(Emitter):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
 
-    def _tools_field(
-        self, agent: ResolvedAgent, mcps: tuple[ResolvedMcp, ...]
-    ) -> str | None:
-        """The ``tools`` allowlist, or ``None`` to inherit all tools.
-
-        An empty ``allowed_tools`` means "no restriction" — omit the field so
-        the agent inherits every built-in tool plus the MCP tools. A non-empty
-        list becomes an allowlist, so every installed MCP is appended as
-        ``mcp__<server>`` to keep it reachable past the allowlist.
-        """
-
-        if not agent.tools:
-            return None
-        granted = [f"mcp__{mcp.name}" for mcp in mcps]
-        return ", ".join((*agent.tools, *granted))
-
     def _read_persona(self, agent: ResolvedAgent) -> tuple[str, str]:
-        text = agent.persona_path.read_text()
+        text = _read_utf8(agent.persona_path)
         meta, body = _split_frontmatter(text)
         description = meta.get("description") if meta else None
         if not isinstance(description, str) or not description:
@@ -156,25 +177,61 @@ class ClaudeEmitter(Emitter):
             _normalize_skill_md(dest_dir)
 
 
-def _merge_mcp_servers(
+def _read_utf8(path: Path) -> str:
+    """Read ``path`` as UTF-8 without newline translation, failing cleanly."""
+
+    try:
+        return path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise EmitError(f"'{path}' is not valid UTF-8") from exc
+    except OSError as exc:
+        raise EmitError(f"'{path}' could not be read: {exc.strerror}") from exc
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` via a temp file in the same directory.
+
+    ``.claude.json`` may be written by Claude Code at the same time; a rename
+    means a reader sees either the old file or the new one, never a torn write.
+    The original's mode is kept.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        if path.exists():
+            shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _merged_config(
     path: Path, servers: dict[str, dict[str, object]], stale: Iterable[str]
-) -> None:
-    """Merge ``servers`` into ``mcpServers`` in the user-scope config at ``path``.
+) -> bytes | None:
+    """The user-scope config at ``path`` with ``servers`` merged into ``mcpServers``.
 
     Keys in ``stale`` that are not in ``servers`` are removed; every other key
-    and value in the file is kept. The file is created as ``{"mcpServers":
-    {...}}`` when absent, and left alone when there is nothing to add or drop.
+    and value in the file is kept. Returns ``None`` when there is nothing to add
+    or drop (the file is then left alone, and never created). An absent file
+    becomes ``{"mcpServers": {...}}``.
     """
 
     stale = [key for key in stale if key not in servers]
     if not servers and not stale:
-        return
-    if not path.exists():
-        if not servers:
-            return
-        data: dict[str, object] = {}
-    else:
+        return None
+    if path.exists():
         data = _read_json_object(path)
+    elif servers:
+        data = {}
+    else:
+        return None
 
     existing = data.setdefault("mcpServers", {})
     if not isinstance(existing, dict):
@@ -182,19 +239,36 @@ def _merge_mcp_servers(
     for key in stale:
         existing.pop(key, None)
     existing.update(servers)
-    path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def _read_json_object(path: Path) -> dict[str, object]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_read_utf8(path))
     except ValueError as exc:
         raise EmitError(f"'{path}' is not valid JSON") from exc
     if not isinstance(data, dict):
         raise EmitError(f"'{path}' must be a JSON object")
     return data
+
+
+def _merged_instructions(path: Path, pack: str, source: Path | None) -> bytes | None:
+    """The ``CLAUDE.md`` at ``path`` with the pack's block written or removed.
+
+    With ``source``, its content replaces an existing block in place or is
+    appended after a blank line (creating the file if needed). Without it, the
+    block and its markers are removed. Returns ``None`` when the file would not
+    change. Bytes outside the block are never touched.
+    """
+
+    text = _read_utf8(path) if path.exists() else None
+    if source is not None:
+        new = _splice_block(text or "", pack, _read_utf8(source), path)
+    elif text is None:
+        return None
+    else:
+        new = _strip_block(text, pack, path)
+    return None if new == text else new.encode("utf-8")
 
 
 def _markers(pack: str) -> tuple[str, str]:
@@ -213,45 +287,29 @@ def _find_block(text: str, begin: str, end: str, path: Path) -> tuple[int, int] 
     return start, stop + len(end)
 
 
-def _write_block(path: Path, pack: str, content: str) -> None:
-    """Replace or append the pack's managed block in ``path``.
-
-    Only the block changes: an existing block is replaced in place, otherwise
-    the block is appended after a blank line. Bytes outside it are preserved,
-    so the file is read and written as bytes rather than through newline
-    translation.
-    """
-
+def _splice_block(text: str, pack: str, content: str, path: Path) -> str:
     begin, end = _markers(pack)
-    block = f"{begin}\n{content.rstrip("\n")}\n{end}"
-    text = path.read_bytes().decode("utf-8") if path.exists() else ""
+    body = content.rstrip("\n")
+    block = f"{begin}\n{body}\n{end}"
     span = _find_block(text, begin, end, path)
     if span is not None:
         start, stop = span
-        text = text[:start] + block + text[stop:]
-    elif not text:
-        text = block + "\n"
-    else:
-        sep = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
-        text = text + sep + block + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(text.encode("utf-8"))
+        return text[:start] + block + text[stop:]
+    if not text:
+        return block + "\n"
+    sep = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
+    return text + sep + block + "\n"
 
 
-def _remove_block(path: Path, pack: str) -> None:
-    """Remove the pack's managed block and its markers from ``path``, if any."""
-
-    if not path.exists():
-        return
+def _strip_block(text: str, pack: str, path: Path) -> str:
     begin, end = _markers(pack)
-    text = path.read_bytes().decode("utf-8")
     span = _find_block(text, begin, end, path)
     if span is None:
-        return
+        return text
     start, stop = span
     if text.startswith("\n", stop):
         stop += 1
-    path.write_bytes((text[:start] + text[stop:]).encode("utf-8"))
+    return text[:start] + text[stop:]
 
 
 def _normalize_skill_md(skill_dir: Path) -> None:

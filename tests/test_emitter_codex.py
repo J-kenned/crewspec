@@ -256,6 +256,33 @@ def test_uninstall_unknown_pack_is_a_clear_error(tmp_path: Path) -> None:
         CodexEmitter().uninstall("ghost", tmp_path / "out")
 
 
+def test_uninstall_rejects_names_that_are_not_pack_names(tmp_path: Path) -> None:
+    # Fix 1: the shared guard applies to Codex too.
+    dest = tmp_path / "out"
+    (dest / "plugins" / "theirs").mkdir(parents=True)
+
+    with pytest.raises(EmitError, match="is not a valid pack name"):
+        CodexEmitter().uninstall("..", dest)
+
+    assert (dest / "plugins" / "theirs").is_dir()
+
+
+def test_install_refuses_to_wipe_a_directory_it_did_not_write(tmp_path: Path) -> None:
+    # Fix 2: a plugin directory without a crewspec state file is not ours.
+    dest = tmp_path / "out"
+    theirs = dest.joinpath(*PLUGIN) / ".codex-plugin" / "plugin.json"
+    theirs.parent.mkdir(parents=True)
+    theirs.write_text("{}")
+    persona = _persona(tmp_path, "a", description="A", body="# A\n")
+
+    with pytest.raises(EmitError, match="was not written by crewspec"):
+        CodexEmitter().emit(
+            _ir(agents=(ResolvedAgent(name="a", persona_path=persona),)), dest
+        )
+
+    assert theirs.read_text() == "{}"
+
+
 def test_agent_skill_name_collision_raises(tmp_path: Path) -> None:
     persona = _persona(tmp_path, "lint", description="Lint agent", body="# L\n")
     skill = _skill(tmp_path, "lint")

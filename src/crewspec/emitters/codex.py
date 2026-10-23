@@ -53,6 +53,8 @@ class CodexEmitter(Emitter):
 
     def emit(self, ir: ResolvedIR, dest: Path) -> None:
         plugin_root = self.output_path(dest, ir.name)
+        # Refuse to wipe a directory crewspec did not write.
+        self.previous_state(dest, ir.name)
 
         # crewspec owns the plugin subtree. The marketplace file is merged
         # separately because other local plugins may share that catalog.

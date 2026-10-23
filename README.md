@@ -46,7 +46,16 @@ real install):
 
 Installing twice yields byte-identical files. The state file records which MCP
 keys and instructions block the pack wrote so the next install or `uninstall`
-removes exactly those.
+removes exactly those. Two packs may not write the same `mcpServers` key;
+`install` refuses to overwrite a plugin directory that has no state file (a
+skill of your own with the pack's name, say), and `uninstall` only ever removes
+a directory that has one.
+
+**Upgrading from an earlier crewspec.** The old plugin at
+`~/.claude/skills/crewspec/` predates the state file, so `list` and `uninstall`
+do not manage it. Remove it by hand (`rm -rf ~/.claude/skills/crewspec`); its
+`.mcp.json` would otherwise duplicate the servers now written to
+`~/.claude.json`.
 
 `--target codex` writes a Codex plugin to `<out>/plugins/<name>/` (with its
 MCPs in a plugin-local `.mcp.json`) and adds an entry to
@@ -87,7 +96,7 @@ instructions: instructions.md   # optional: becomes a managed block in CLAUDE.md
 agents:
   reviewer:
     persona: agents/reviewer.md
-    allowed_tools: [Read, Grep, Bash]
+    allowed_tools: [Read, Grep, Bash, "mcp__github__*"]
     depends_on:
       skills: [code-review]     # listed in the agent's emitted file
 
@@ -108,10 +117,13 @@ can live side by side. `instructions` is a path relative to the crewfile and
 must exist.
 
 Every skill under `skills:` and every server under `mcps:` is installed. MCPs
-are global to the pack, so agents do not declare them; a crewfile that still
-has `agents.<x>.depends_on.mcps` fails with a message saying so. Dependency
-edges are reference checks: an unknown name is an error, but they do not select
-what is emitted, and a cycle is not an error.
+are global to the pack: each server is installed once, and an agent reaches its
+tools only through its own `allowed_tools` (`mcp__github__*` above). Nothing is
+granted implicitly, and agents do not list MCPs under `depends_on`; a crewfile
+that still has `agents.<x>.depends_on.mcps` fails with a message saying so.
+Dependency edges are reference checks: an unknown name is an error, but they do
+not select what is emitted, and a cycle is not an error. `instructions` may not
+be an absolute path or contain `..`.
 
 A skill declares its own dependencies under an `x-crewspec:` key in its
 `SKILL.md` frontmatter. Other tools ignore the key, so the skill stays portable:

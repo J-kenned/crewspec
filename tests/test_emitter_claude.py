@@ -9,6 +9,7 @@ file contents.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -136,12 +137,27 @@ def test_agent_frontmatter_maps_tools_skills_and_omits_mcpservers(
 
     assert meta["name"] == "reviewer"
     assert meta["description"] == "Reviews code for quality"
-    # Allowlist appends every installed MCP so it survives the allowlist.
-    assert meta["tools"] == "Read, Edit, mcp__github"
-    assert meta["skills"] == "lint"
+    # Fix 6: exactly the declared allowlist; the global MCP is not appended.
+    assert meta["tools"] == "Read, Edit"
+    # Fix 7: skills is a YAML list, as the Claude Code docs show.
+    assert meta["skills"] == ["lint"]
     # Plugin agents may not declare mcpServers; servers live in .claude.json.
     assert "mcpServers" not in meta
     assert body == "# Reviewer\n\nReview it.\n"
+
+
+def test_tools_allowlist_is_exactly_what_the_agent_declares(tmp_path: Path) -> None:
+    ir = _ir(
+        agents=(_agent(tmp_path, tools=("Read", "mcp__github__*")),),
+        mcps=(
+            _mcp("github", StdioMcpServer(command="gh")),
+            _mcp("deploy", StdioMcpServer(command="deploy")),
+        ),
+    )
+
+    meta, _ = _frontmatter(_emit(tmp_path, ir) / "agents" / "a.md")
+
+    assert meta["tools"] == "Read, mcp__github__*"
 
 
 def test_empty_allowed_tools_omits_tools_field(tmp_path: Path) -> None:
@@ -264,6 +280,21 @@ def test_missing_persona_description_raises(tmp_path: Path) -> None:
         ClaudeEmitter().emit(ir, tmp_path / "out")
 
 
+def test_install_refuses_to_wipe_a_directory_it_did_not_write(tmp_path: Path) -> None:
+    # Fix 2: a hand-written skill that happens to share the pack's name.
+    dest = tmp_path / "out"
+    mine = dest.joinpath(*PLUGIN) / "SKILL.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("mine\n")
+
+    with pytest.raises(EmitError, match="was not written by crewspec") as exc:
+        ClaudeEmitter().emit(_ir(agents=(_agent(tmp_path),)), dest)
+
+    assert str(dest.joinpath(*PLUGIN)) in str(exc.value)
+    assert mine.read_text() == "mine\n"
+    assert not (dest / ".claude.json").exists()
+
+
 # --- .claude.json -------------------------------------------------------------
 
 
@@ -381,6 +412,47 @@ def test_invalid_claude_json_is_an_error_not_overwritten(tmp_path: Path) -> None
     assert (dest / ".claude.json").read_text() == "{not json"
 
 
+def test_failed_install_keeps_ownership_of_previous_keys(tmp_path: Path) -> None:
+    # Fix 3: a failing install must not lose the record of what was written.
+    dest = tmp_path / "out"
+    a = _mcp("a", StdioMcpServer(command="a"))
+    b = _mcp("b", StdioMcpServer(command="b"))
+    ClaudeEmitter().emit(_ir(mcps=(a, b)), dest)
+
+    bad = _mcp("c", StdioMcpServer(command="c", env={"K": "${file:/k}"}))
+    with pytest.raises(EmitError, match="file:/k"):
+        ClaudeEmitter().emit(_ir(mcps=(a, b, bad)), dest)
+
+    state_path = dest.joinpath(*PLUGIN) / ".claude-plugin" / "crewspec.json"
+    assert json.loads(state_path.read_text())["mcps"] == ["a", "b"]
+    assert list(_claude_json(dest)["mcpServers"]) == ["a", "b"]  # type: ignore[arg-type]
+
+    ClaudeEmitter().emit(_ir(mcps=(a,)), dest)
+
+    assert list(_claude_json(dest)["mcpServers"]) == ["a"]  # type: ignore[arg-type]
+
+
+def test_mcp_key_owned_by_another_pack_is_an_error(tmp_path: Path) -> None:
+    # Fix 4: two packs may not write the same mcpServers key.
+    dest = tmp_path / "out"
+    github = _mcp("github", StdioMcpServer(command="gh"))
+    ClaudeEmitter().emit(ResolvedIR(name="one", mcps=(github,)), dest)
+
+    with pytest.raises(EmitError, match="already installed by pack 'one'") as exc:
+        ClaudeEmitter().emit(ResolvedIR(name="two", mcps=(github,)), dest)
+
+    assert "github" in str(exc.value)
+    assert "pack 'two'" in str(exc.value)
+    assert not (dest / ".claude" / "skills" / "two").exists()
+
+    # A different key is fine, and uninstalling one pack leaves the other's.
+    other = _mcp("other", StdioMcpServer(command="other"))
+    ClaudeEmitter().emit(ResolvedIR(name="two", mcps=(other,)), dest)
+    ClaudeEmitter().uninstall("one", dest)
+
+    assert list(_claude_json(dest)["mcpServers"]) == ["other"]  # type: ignore[arg-type]
+
+
 def test_file_secret_is_an_error(tmp_path: Path) -> None:
     ir = _ir(
         mcps=(
@@ -467,6 +539,25 @@ def test_other_packs_blocks_are_left_alone(tmp_path: Path) -> None:
     assert claude_md.read_text() == other + "\n"
 
 
+@pytest.mark.parametrize("which", ["claude_md", "instructions"])
+def test_non_utf8_input_is_a_clean_error(tmp_path: Path, which: str) -> None:
+    # Fix 5: a non-UTF-8 CLAUDE.md or instructions file is an EmitError, raised
+    # before anything is written.
+    dest = tmp_path / "out"
+    claude_md = dest / ".claude" / "CLAUDE.md"
+    claude_md.parent.mkdir(parents=True)
+    claude_md.write_bytes(b"# Mine\n")
+    instructions = _instructions(tmp_path)
+    (claude_md if which == "claude_md" else instructions).write_bytes(b"\xff\xfe bad")
+
+    with pytest.raises(EmitError, match="not valid UTF-8"):
+        ClaudeEmitter().emit(_ir(instructions=instructions), dest)
+
+    assert not dest.joinpath(*PLUGIN).exists()
+    if which == "instructions":
+        assert claude_md.read_bytes() == b"# Mine\n"
+
+
 def test_unterminated_block_is_an_error(tmp_path: Path) -> None:
     dest = tmp_path / "out"
     claude_md = dest / ".claude" / "CLAUDE.md"
@@ -540,3 +631,67 @@ def test_uninstall_removes_only_what_the_pack_wrote(tmp_path: Path) -> None:
 def test_uninstall_unknown_pack_is_a_clear_error(tmp_path: Path) -> None:
     with pytest.raises(EmitError, match="no pack 'ghost' is installed for claude"):
         ClaudeEmitter().uninstall("ghost", tmp_path / "out")
+
+
+def test_uninstall_requires_a_state_file(tmp_path: Path) -> None:
+    # Fix 1: a plugin directory crewspec did not write is never removed.
+    dest = tmp_path / "out"
+    manifest = dest.joinpath(*PLUGIN) / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+
+    with pytest.raises(EmitError, match=f"no pack '{PACK}' is installed"):
+        ClaudeEmitter().uninstall(PACK, dest)
+
+    assert manifest.exists()
+
+
+@pytest.mark.parametrize("name", [".", "..", "../../victim", "Pack", "a/b"])
+def test_uninstall_rejects_names_that_are_not_pack_names(
+    tmp_path: Path, name: str
+) -> None:
+    # Fix 1: NAME is validated before any path is built or removed.
+    dest = tmp_path / "out"
+    ClaudeEmitter().emit(_ir(agents=(_agent(tmp_path),)), dest)
+    victim = tmp_path / "victim"
+    victim.mkdir()
+
+    with pytest.raises(EmitError, match="is not a valid pack name"):
+        ClaudeEmitter().uninstall(name, dest)
+
+    assert dest.joinpath(*PLUGIN).is_dir()
+    assert victim.is_dir()
+
+
+def test_user_files_are_written_atomically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Fix 8: the rename is the commit point, so a failure before it leaves the
+    # original untouched and no temp file behind.
+    dest = tmp_path / "out"
+    dest.mkdir()
+    (dest / ".claude.json").write_text('{"theirs": true}')
+
+    def boom(src: str, dst: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(OSError, match="disk full"):
+        ClaudeEmitter().emit(_ir(mcps=(_mcp("m", StdioMcpServer(command="m")),)), dest)
+
+    assert (dest / ".claude.json").read_text() == '{"theirs": true}'
+    assert [p.name for p in dest.iterdir() if p.name != ".claude"] == [".claude.json"]
+
+    monkeypatch.undo()
+    ClaudeEmitter().emit(
+        _ir(
+            instructions=_instructions(tmp_path),
+            mcps=(_mcp("m", StdioMcpServer(command="m")),),
+        ),
+        dest,
+    )
+    assert sorted(p.name for p in dest.iterdir()) == [".claude", ".claude.json"]
+    assert sorted(p.name for p in (dest / ".claude").iterdir()) == [
+        "CLAUDE.md",
+        "skills",
+    ]

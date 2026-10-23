@@ -166,7 +166,16 @@ def _reject_agent_mcps(raw: dict[str, object], crewfile: Path) -> None:
 def _load_instructions(doc: CrewDoc, root: Path, crewfile: Path) -> Path | None:
     if doc.instructions is None:
         return None
-    path = root / doc.instructions
+    relative = Path(doc.instructions)
+    # Same rule as a github: subdir: a pack may only read its own files, so a
+    # fetched pack cannot pull an arbitrary local file into CLAUDE.md.
+    if relative.is_absolute() or ".." in relative.parts:
+        raise CrewfileSyntaxError(
+            f"instructions '{doc.instructions}' must be a relative path inside "
+            "the pack (no absolute path or '..')",
+            path=crewfile,
+        )
+    path = root / relative
     if not path.is_file():
         raise MissingArtifactError(
             f"instructions file '{doc.instructions}' does not exist", path=crewfile

@@ -90,17 +90,18 @@ def test_example_matches_golden(tmp_path: Path) -> None:
 def test_every_declared_skill_is_emitted(plugin_root: Path) -> None:
     # No agent lists test-analysis; it ships because the crewfile declares it.
     assert (plugin_root / "skills" / "test-analysis" / "SKILL.md").is_file()
-    # The agent file lists only the skills the agent declares.
+    # The agent file lists only the skills the agent declares, as a YAML list.
     meta = _agent_frontmatter(plugin_root / "agents" / "reviewer.md")
-    assert meta["skills"] == "code-review"
+    assert meta["skills"] == ["code-review"]
 
 
 def test_mcps_are_user_scoped(out: Path, plugin_root: Path) -> None:
     assert not (plugin_root / ".mcp.json").exists()
     servers = yaml.safe_load((out / ".claude.json").read_text())["mcpServers"]
     assert list(servers) == ["github"]
+    # MCP tool access is exactly what the crewfile's allowed_tools grants.
     meta = _agent_frontmatter(plugin_root / "agents" / "reviewer.md")
-    assert str(meta["tools"]).split(", ").count("mcp__github") == 1
+    assert meta["tools"] == "Read, Grep, Bash, mcp__github__*"
 
 
 def test_instructions_are_a_managed_block(out: Path) -> None:
