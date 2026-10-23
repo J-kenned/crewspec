@@ -122,8 +122,9 @@ tools only through its own `allowed_tools` (`mcp__github__*` above). Nothing is
 granted implicitly, and agents do not list MCPs under `depends_on`; a crewfile
 that still has `agents.<x>.depends_on.mcps` fails with a message saying so.
 Dependency edges are reference checks: an unknown name is an error, but they do
-not select what is emitted, and a cycle is not an error. `instructions` may not
-be an absolute path or contain `..`.
+not select what is emitted, and a cycle is not an error. Every path the crewfile
+names (personas, skill directories, `instructions`) must stay inside the pack:
+no absolute paths, no `..`, and no symlinks that lead outside it.
 
 A skill declares its own dependencies under an `x-crewspec:` key in its
 `SKILL.md` frontmatter. Other tools ignore the key, so the skill stays portable:

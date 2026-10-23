@@ -124,16 +124,55 @@ def test_instructions_resolves_against_crewfile_dir(tmp_path: Path) -> None:
     assert crew.registry.instructions == tmp_path / "docs" / "rules.md"
 
 
+def _crew_with_paths(
+    root: Path,
+    *,
+    persona: str = "agents/a.md",
+    skill: str = "skills/s",
+    instructions: str | None = None,
+) -> Path:
+    """A valid crew whose artifact paths are overridable, one per kind."""
+
+    _write(root / "agents" / "a.md", "# Agent\n")
+    _write(root / "skills" / "s" / "SKILL.md", _skill_md())
+    _write(root / "rules.md", "# Rules\n")
+    text = 'version: "0.1"\nname: paths\n'
+    if instructions is not None:
+        text += f"instructions: {instructions}\n"
+    text += f"agents:\n  a:\n    persona: {persona}\nskills:\n  s:\n    path: {skill}\n"
+    return _write(root / "crew.crewfile", text)
+
+
+@pytest.mark.parametrize("kind", ["persona", "skill", "instructions"])
 @pytest.mark.parametrize(
     "target", ["/etc/hosts", "../outside.md", "docs/../../outside.md"]
 )
-def test_instructions_must_stay_inside_the_pack(tmp_path: Path, target: str) -> None:
-    # Fix 9: a github: pack must not read arbitrary local files into CLAUDE.md.
-    crewfile = _build_min_crew(tmp_path)
-    _write(tmp_path.parent / "outside.md", "secret\n")
-    crewfile.write_text(crewfile.read_text() + f"instructions: {target}\n")
+def test_artifact_paths_must_stay_inside_the_pack(
+    tmp_path: Path, kind: str, target: str
+) -> None:
+    # Fix 9: a github: pack must not read arbitrary local files into the plugin
+    # or CLAUDE.md. One guard covers every path the crewfile names.
+    _write(tmp_path / "outside.md", "secret\n")
+    crewfile = _crew_with_paths(tmp_path / "pack", **{kind: target})
 
-    with pytest.raises(CrewfileSyntaxError, match="inside the pack"):
+    with pytest.raises(CrewfileSyntaxError, match=f"{kind}.*inside the pack"):
+        load_crewfile(crewfile)
+
+
+@pytest.mark.parametrize("kind", ["persona", "skill", "instructions"])
+def test_symlink_escaping_the_pack_is_rejected(tmp_path: Path, kind: str) -> None:
+    outside = tmp_path / "outside"
+    _write(outside / "a.md", "# Agent\n")
+    _write(outside / "SKILL.md", _skill_md())
+    _write(outside / "rules.md", "# Rules\n")
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    (pack / "link").symlink_to(outside, target_is_directory=True)
+    target = {"persona": "link/a.md", "skill": "link", "instructions": "link/rules.md"}
+
+    crewfile = _crew_with_paths(pack, **{kind: target[kind]})
+
+    with pytest.raises(CrewfileSyntaxError, match=f"{kind}.*outside the pack"):
         load_crewfile(crewfile)
 
 

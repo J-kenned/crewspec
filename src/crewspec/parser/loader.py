@@ -163,19 +163,35 @@ def _reject_agent_mcps(raw: dict[str, object], crewfile: Path) -> None:
             )
 
 
+def _pack_path(root: Path, relative: str, crewfile: Path, what: str) -> Path:
+    """Resolve an artifact path the crewfile names, keeping it inside the pack.
+
+    Same rule as a ``github:`` subdir: a pack may only read its own files, so a
+    fetched pack cannot pull an arbitrary local file into the plugin or into
+    ``CLAUDE.md``. Absolute paths and ``..`` segments are rejected lexically;
+    a symlink that leads outside the pack is caught by resolving both sides.
+    Returns ``root / relative`` unresolved so reported paths stay readable.
+    """
+
+    target = Path(relative)
+    if target.is_absolute() or ".." in target.parts:
+        raise CrewfileSyntaxError(
+            f"{what} '{relative}' must be a relative path inside the pack "
+            "(no absolute path or '..')",
+            path=crewfile,
+        )
+    path = root / target
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise CrewfileSyntaxError(
+            f"{what} '{relative}' resolves outside the pack", path=crewfile
+        )
+    return path
+
+
 def _load_instructions(doc: CrewDoc, root: Path, crewfile: Path) -> Path | None:
     if doc.instructions is None:
         return None
-    relative = Path(doc.instructions)
-    # Same rule as a github: subdir: a pack may only read its own files, so a
-    # fetched pack cannot pull an arbitrary local file into CLAUDE.md.
-    if relative.is_absolute() or ".." in relative.parts:
-        raise CrewfileSyntaxError(
-            f"instructions '{doc.instructions}' must be a relative path inside "
-            "the pack (no absolute path or '..')",
-            path=crewfile,
-        )
-    path = root / relative
+    path = _pack_path(root, doc.instructions, crewfile, "instructions")
     if not path.is_file():
         raise MissingArtifactError(
             f"instructions file '{doc.instructions}' does not exist", path=crewfile
@@ -186,7 +202,7 @@ def _load_instructions(doc: CrewDoc, root: Path, crewfile: Path) -> Path | None:
 def _load_agents(doc: CrewDoc, root: Path, crewfile: Path) -> dict[str, AgentNode]:
     agents: dict[str, AgentNode] = {}
     for name, agent in doc.agents.items():
-        persona = root / agent.persona
+        persona = _pack_path(root, agent.persona, crewfile, f"agent '{name}' persona")
         if not persona.is_file():
             raise MissingArtifactError(
                 f"agent '{name}' persona file '{agent.persona}' does not exist",
@@ -199,7 +215,7 @@ def _load_agents(doc: CrewDoc, root: Path, crewfile: Path) -> dict[str, AgentNod
 def _load_skills(doc: CrewDoc, root: Path, crewfile: Path) -> dict[str, SkillNode]:
     skills: dict[str, SkillNode] = {}
     for name, skill in doc.skills.items():
-        skill_dir = root / skill.path
+        skill_dir = _pack_path(root, skill.path, crewfile, f"skill '{name}' path")
         if not skill_dir.is_dir():
             raise MissingArtifactError(
                 f"skill '{name}' directory '{skill.path}' does not exist",
