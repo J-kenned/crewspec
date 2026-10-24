@@ -56,6 +56,8 @@ class ResolvedAgent(BaseModel):
     ``tools`` is the agent's ``allowed_tools`` grant list, passed through for
     each emitter to map onto its own syntax. ``skills`` are the agent's declared
     ``depends_on.skills`` in declared order; MCPs are global and live on the IR.
+    ``withheld`` names the 0.2 runtime blocks (and ``x-*`` keys) the agent
+    sets; no current emitter renders them, so they are reported, not written.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -64,6 +66,7 @@ class ResolvedAgent(BaseModel):
     persona_path: Path
     tools: tuple[str, ...] = ()
     skills: tuple[ResolvedSkill, ...] = ()
+    withheld: tuple[str, ...] = ()
 
 
 class ResolvedIR(BaseModel):

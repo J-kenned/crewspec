@@ -31,6 +31,7 @@ def resolve(registry: NodeRegistry) -> ResolvedIR:
             persona_path=node.persona,
             tools=tuple(node.definition.allowed_tools),
             skills=tuple(skills[s] for s in node.definition.depends_on.skills),
+            withheld=node.definition.runtime_blocks(),
         )
         for name, node in registry.agents.items()
     ]

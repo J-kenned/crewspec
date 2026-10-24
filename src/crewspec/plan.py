@@ -80,12 +80,15 @@ def _count(n: int, noun: str) -> str:
 
 
 def _agent_lines(agent: ResolvedAgent) -> list[str]:
-    return [
+    lines = [
         f"  • {agent.name}",
         f"      persona:  {_display_path(agent.persona_path)}",
         f"      tools:    {', '.join(agent.tools) or '(inherit all)'}",
         f"      skills:   {', '.join(s.name for s in agent.skills) or '(none)'}",
     ]
+    if agent.withheld:
+        lines.append(f"      withheld: {', '.join(agent.withheld)} (not emitted)")
+    return lines
 
 
 def _mcp_summary(mcp: ResolvedMcp) -> str:
