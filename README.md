@@ -188,6 +188,39 @@ the host expands it when the MCP server starts:
 | `${secret:NAME}` | `${NAME}` | The secret value never lands on disk. Set `NAME` in the environment that launches the host. |
 | `${file:PATH}`   | error on the Claude target | No target mounts files, so the reference could never resolve. Codex still writes it verbatim with a warning. |
 
+## Crewfile 0.2
+
+`version: "0.2"` adds six optional blocks to an **agent**. Each is a boundary,
+so each lives on the agent only: no pack-level copy, no inheritance. Share with
+YAML anchors. See `examples/night-shift/` for a real one.
+
+| Block | Declares |
+| ----- | -------- |
+| `triggers` | what wakes the agent: `provider` (`github`, `cron`, `webhook`, …), `type`, `filter`, `cron` or `fire_at`, `prompt`, `claim`, `coalesce`, `deliver_only` |
+| `channels` | where it talks: `kind` (`slack`, `github`, `cli`, `push`), `binding`, `approvals_inbox` |
+| `sandbox` | `kind` (`none`, `docker`, `vm`), `policy`, `network` (`none`, `broker-only`, `allowlist` + `allow`), `host_access`, `disk_mb`, `leaves` |
+| `secrets` | name → `ref: vault://…`, `blind` (default `true`), `hosts`, `kind` |
+| `limits` | `tokens_per_run` and `wall_clock_s` (both required), `tokens_per_day`, `max_prs_per_night`, `retries`, `deny` |
+| `approvals` | `policy`, `ask` (closed list: `send post pay sign delete merge promote`), `timeout_s`, `on_timeout`, `deferred`, `unattended` |
+
+Three rules:
+
+1. **Version gates the blocks.** Any of the six under `version: "0.1"` is an
+   error naming the agent and block. `version` itself must be `"0.1"` or `"0.2"`.
+2. **One secret grammar.** `${secret:NAME}` stays the only reference form, and
+   `secrets:` is the only place a name is declared. In 0.2 every `${secret:NAME}`
+   an MCP server uses must be declared by at least one agent, and by every agent
+   that can reach that server (an `mcp__<server>__…` tool or a skill whose
+   `x-crewspec.mcps` lists it). Undeclared fails at load with the line. 0.1 keeps
+   the passthrough above. `${VAR}` is for non-secrets and is unchanged.
+3. **`x-<name>` is the escape hatch.** An agent may carry `x-operative:` (or any
+   `x-` key) as an opaque mapping for the runtime that owns it. Every other
+   unknown key is still rejected, `inject` included.
+
+Claude Code and Codex have no home for these blocks, so both emitters
+**withhold** them: nothing is written, nothing fails. `crewspec validate` lists
+the withheld blocks per agent (`withheld` in `--json`).
+
 ## Design docs
 
 - [crewspec Spec and Design](https://linear.app/kenned/document/crewspec-spec-and-design-959937905db9): the format and CLI.
