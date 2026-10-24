@@ -27,6 +27,8 @@ from pydantic import ValidationError
 
 from crewspec.models.crew import CrewDoc
 from crewspec.models.deps import SkillDeps
+from crewspec.models.interpolate import SecretRef, parse_refs
+from crewspec.models.mcp import McpServer, StdioMcpServer
 from crewspec.models.skill import SkillDef, XCrewspecFrontmatter
 from crewspec.parser.errors import (
     CrewfileSyntaxError,
@@ -96,6 +98,8 @@ def load_crewfile(path: str | Path) -> LoadedCrew:
         mcps=dict(doc.mcps),
     )
     _validate_references(registry, crewfile)
+    if doc.version == "0.2":
+        _validate_secret_refs(doc, registry, crewfile)
     return LoadedCrew(doc=doc, registry=registry, root=root)
 
 
@@ -270,6 +274,74 @@ def _validate_references(registry: NodeRegistry, crewfile: Path) -> None:
     for name, skill in registry.skills.items():
         _check(registry.skills, skill.deps.skills, crewfile, "skills", name, "skills")
         _check(registry.mcps, skill.deps.mcps, crewfile, "skills", name, "mcps")
+
+
+def _validate_secret_refs(doc: CrewDoc, registry: NodeRegistry, crewfile: Path) -> None:
+    """0.2: every ``${secret:NAME}`` an MCP server uses must be declared.
+
+    Declared means it appears under ``secrets:`` of at least one agent, and of
+    every agent that can reach the server: through an ``allowed_tools`` entry
+    ``mcp__<server>__…`` or through a directly depended-on skill whose merged
+    deps list the server. Undeclared is a hole in blinding, so it fails at load.
+    0.1 documents keep the passthrough behaviour and never reach here.
+    """
+
+    reach = {a: _reachable_mcps(n, registry) for a, n in registry.agents.items()}
+    for mcp_name, server in doc.mcps.items():
+        for secret in _secret_names(server):
+            declared = {
+                a
+                for a, n in registry.agents.items()
+                if secret in (n.definition.secrets or {})
+            }
+            if not declared:
+                _secret_error(secret, mcp_name, "no agent declares it", crewfile)
+            for agent, mcps in reach.items():
+                if mcp_name in mcps and agent not in declared:
+                    _secret_error(
+                        secret,
+                        mcp_name,
+                        f"agent '{agent}' reaches the server but does not declare it",
+                        crewfile,
+                    )
+
+
+def _reachable_mcps(node: AgentNode, registry: NodeRegistry) -> set[str]:
+    via_tools = {
+        tool.split("__", 2)[1]
+        for tool in node.definition.allowed_tools
+        if tool.startswith("mcp__") and tool.count("__") >= 2
+    }
+    via_skills = {
+        mcp
+        for s in node.definition.depends_on.skills
+        for mcp in registry.skills[s].deps.mcps
+    }
+    return via_tools | via_skills
+
+
+def _secret_names(server: McpServer) -> list[str]:
+    if isinstance(server, StdioMcpServer):
+        values = [server.command, *server.args, *server.env.values()]
+    else:
+        values = [server.url, *server.headers.values()]
+    names: dict[str, None] = {}
+    for value in values:
+        for ref in parse_refs(value):
+            if isinstance(ref, SecretRef) and ref.kind == "secret":
+                names.setdefault(ref.target, None)
+    return list(names)
+
+
+def _secret_error(secret: str, mcp: str, why: str, crewfile: Path) -> None:
+    needle = f"${{secret:{secret}}}"
+    lines = crewfile.read_text().splitlines()
+    line = next((i for i, text in enumerate(lines, 1) if needle in text), None)
+    raise UnknownReferenceError(
+        f"mcps.{mcp} uses {needle} but {why}; declare it under agents.<name>.secrets",
+        path=crewfile,
+        line=line,
+    )
 
 
 def _check(
