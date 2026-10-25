@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 #: Agent keys that are 0.2 blocks. Order is the order ``withheld`` reports them.
 RUNTIME_BLOCKS = ("triggers", "channels", "sandbox", "secrets", "limits", "approvals")
@@ -76,6 +76,13 @@ class Mount(_Strict):
     path: str
     mode: Literal["ro", "rw"] = "ro"
 
+    @field_validator("path")
+    @classmethod
+    def _absolute(cls, value: str) -> str:
+        if not value.startswith("/") or ".." in value.split("/"):
+            raise ValueError("sandbox.mounts: path must be absolute without '..'")
+        return value
+
 
 class Sandbox(_Strict):
     kind: Literal["none", "docker", "vm"]
@@ -87,6 +94,12 @@ class Sandbox(_Strict):
     disk_mb: int | None = None
     leaves: Leaves = Field(default_factory=Leaves)
     mounts: list[Mount] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _mounts_need_host_disk(self) -> Sandbox:
+        if self.mounts and self.host_access != "host-disk":
+            raise ValueError("sandbox.mounts requires host_access: host-disk")
+        return self
 
 
 class Secret(_Strict):

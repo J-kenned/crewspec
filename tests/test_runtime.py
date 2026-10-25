@@ -242,3 +242,13 @@ def test_secret_login_url_is_web_login_only_field() -> None:
                login_url="https://jira.example.com/login")
     assert s.login_url == "https://jira.example.com/login"
     assert Secret(ref="vault://x/y").login_url is None
+
+
+def test_sandbox_mounts_need_host_disk_and_absolute_paths() -> None:
+    with pytest.raises(ValidationError, match="host_access: host-disk"):
+        CrewDoc.model_validate(_doc(limits=LIMITS, sandbox={"kind": "docker", "mounts": [{"path": "/srv"}]}))
+    for bad in ("srv/data", "/srv/../etc"):
+        with pytest.raises(ValidationError, match="absolute"):
+            CrewDoc.model_validate(_doc(
+                limits=LIMITS, sandbox={"kind": "docker", "host_access": "host-disk", "mounts": [{"path": bad}]}
+            ))
