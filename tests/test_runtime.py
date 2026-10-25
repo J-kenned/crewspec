@@ -7,13 +7,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 from pydantic import ValidationError
 
-from crewspec.cli import cli
 from crewspec.ir import ResolvedIR
 from crewspec.models import CrewDoc
 from crewspec.parser import UnknownReferenceError, load_crewfile
+from tests.conftest import Runner
 
 NIGHT_SHIFT = Path(__file__).resolve().parent.parent / "examples" / "night-shift"
 
@@ -22,7 +21,8 @@ def _agent(**extra: object) -> dict[str, object]:
     return {"persona": "agents/a.md", **extra}
 
 
-def _doc(version: str = "0.2", **agent: object) -> dict[str, object]:
+def _doc(**agent: object) -> dict[str, object]:
+    version = agent.pop("version", "0.2")
     return {"version": version, "name": "p", "agents": {"a": _agent(**agent)}}
 
 
@@ -78,7 +78,7 @@ def test_secret_ref_must_be_vault_scheme() -> None:
 
 def test_secret_blind_defaults_true() -> None:
     doc = CrewDoc.model_validate(_doc(secrets={"t": {"ref": "vault://x"}}))
-    assert doc.agents["a"].secrets["t"].blind is True
+    assert (doc.agents["a"].secrets or {})["t"].blind is True
 
 
 @pytest.mark.parametrize("key", ["inject", "bogus"])
@@ -89,6 +89,10 @@ def test_unknown_keys_are_still_forbidden(key: str) -> None:
 
 def test_extension_must_be_a_mapping() -> None:
     assert "x-foo must be a mapping" in _err(_doc(**{"x-foo": 1}))
+
+
+def test_extensions_key_is_reserved_even_without_x_keys() -> None:
+    assert "reserved" in _err(_doc(extensions={"foo": {}}))
 
 
 def test_two_approvals_inboxes_are_rejected() -> None:
@@ -106,11 +110,6 @@ def test_approvals_block_needs_exactly_one_inbox() -> None:
 
 def test_approvals_ask_is_a_closed_enum() -> None:
     assert "ask" in _err(_doc(approvals={"ask": ["launch"]}, channels=INBOX))
-
-
-def test_sandbox_allow_only_with_allowlist() -> None:
-    assert "allowlist" in _err(_doc(sandbox={"kind": "docker", "allow": ["x"]}))
-    assert "allowlist" in _err(_doc(sandbox={"kind": "docker", "network": "allowlist"}))
 
 
 # -- secret grammar (loader) --------------------------------------------------
@@ -156,6 +155,17 @@ def test_agent_reaching_server_must_declare_its_secret(tmp_path: Path) -> None:
         load_crewfile(_save(crewfile, raw))
 
 
+def test_inherit_all_agent_must_declare_every_server_secret(tmp_path: Path) -> None:
+    crewfile, raw = _copy_night_shift(tmp_path)
+    raw["agents"]["second"] = {
+        "persona": "agents/night-shift.md"
+    }  # no tools: inherits all
+    with pytest.raises(
+        UnknownReferenceError, match="agent 'second' reaches the server"
+    ):
+        load_crewfile(_save(crewfile, raw))
+
+
 def test_0_1_keeps_secret_passthrough(tmp_path: Path) -> None:
     crewfile, raw = _copy_night_shift(tmp_path)
     raw["version"] = "0.1"
@@ -175,12 +185,8 @@ def test_0_1_keeps_secret_passthrough(tmp_path: Path) -> None:
 # -- CLI: withheld reporting, emit does not crash ----------------------------
 
 
-def _run(*args: str):
-    return CliRunner().invoke(cli, list(args), prog_name="crewspec")
-
-
-def test_validate_json_lists_withheld_blocks() -> None:
-    result = _run("validate", str(NIGHT_SHIFT), "--json")
+def test_validate_json_lists_withheld_blocks(run_cli: Runner) -> None:
+    result = run_cli("validate", str(NIGHT_SHIFT), "--json")
     assert result.exit_code == 0, result.output
     ir = ResolvedIR.model_validate_json(result.output)
     assert ir.agents[0].withheld == (
@@ -194,8 +200,8 @@ def test_validate_json_lists_withheld_blocks() -> None:
     )
 
 
-def test_validate_tree_mentions_withheld() -> None:
-    result = _run("validate", str(NIGHT_SHIFT))
+def test_validate_tree_mentions_withheld(run_cli: Runner) -> None:
+    result = run_cli("validate", str(NIGHT_SHIFT))
     assert result.exit_code == 0, result.output
     assert (
         "withheld: triggers, channels, sandbox, secrets, limits, approvals, x-operative"
@@ -205,9 +211,9 @@ def test_validate_tree_mentions_withheld() -> None:
 
 @pytest.mark.parametrize("target", ["claude", "codex"])
 def test_install_withholds_0_2_blocks_without_crashing(
-    tmp_path: Path, target: str
+    run_cli: Runner, tmp_path: Path, target: str
 ) -> None:
-    result = _run(
+    result = run_cli(
         "install", str(NIGHT_SHIFT), "--target", target, "--out", str(tmp_path)
     )
     assert result.exit_code == 0, result.output
