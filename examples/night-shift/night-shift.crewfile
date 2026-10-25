@@ -24,7 +24,8 @@ agents:
     triggers:
       - provider: github
         type: label_change
-        filter: {label: night-shift}            # repo comes from the github channel binding
+        filter: {repo: kennedlj/Operative, label: night-shift}
+        claim: {working: "night-shift:working", failed: "night-shift:failed"}   # D5
         coalesce: {key: issue.number, window_s: 120, max_wait_s: 600}
         deliver_only: false
         run: {fresh_session: true}
@@ -38,8 +39,7 @@ agents:
       - kind: github
         binding: {repo: kennedlj/Operative}
     sandbox:
-      kind: docker
-      scope: run                       # D1: one container per run
+      kind: docker                     # D1: one container per run
       required: true
       policy: workspace-write
       network: broker-only             # D4: no raw egress
@@ -74,7 +74,6 @@ agents:
       backend: claude_code             # D7d: emitter is the adapter
       memory_policy: {write: broad, read: persona-curated}
       model: claude-opus-5-5
-      labels: {claim: "night-shift:working", failed: "night-shift:failed"}   # D5
 
 skills:
   issue-to-pr:

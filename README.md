@@ -199,7 +199,7 @@ YAML anchors. See `examples/night-shift/` for a real one.
 | `triggers` | what wakes the agent: `provider` (`github`, `cron`, `webhook`, …), `type`, `filter`, `cron` or `fire_at`, `prompt`, `claim`, `coalesce`, `deliver_only` |
 | `channels` | where it talks: `kind` (`slack`, `github`, `cli`, `push`), `binding`, `approvals_inbox` |
 | `sandbox` | `kind` (`none`, `docker`, `vm`), `policy`, `network` (`none`, `broker-only`, `allowlist` + `allow`), `host_access`, `disk_mb`, `leaves` |
-| `secrets` | name → `ref: vault://…`, `blind` (default `true`), `hosts`, `kind` |
+| `secrets` | name → `ref: vault://…`, `blind` (default `true`), `hosts`, `kind`. For `kind: web-login`, `hosts` is the list of origins the runtime's login tool may fill; fill is refused elsewhere. |
 | `limits` | `tokens_per_run` and `wall_clock_s` (both required), `tokens_per_day`, `max_prs_per_night`, `retries`, `deny` |
 | `approvals` | `policy`, `ask` (closed list: `send post pay sign delete merge promote`), `timeout_s`, `on_timeout`, `deferred`, `unattended` |
 
