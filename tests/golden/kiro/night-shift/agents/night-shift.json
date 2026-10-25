@@ -5,6 +5,8 @@
   "tools": [
     "fs_read",
     "fs_write",
+    "grep",
+    "glob",
     "execute_bash",
     "@github/get_issue",
     "@github/create_branch",
@@ -15,17 +17,12 @@
   ],
   "allowedTools": [
     "fs_read",
-    "fs_write",
-    "execute_bash",
-    "@github/get_issue",
-    "@github/create_branch",
-    "@github/push_files",
-    "@github/create_pull_request",
-    "@github/add_issue_comment",
-    "@github/update_issue"
+    "grep",
+    "glob"
   ],
   "mcpServers": {
     "github": {
+      "type": "stdio",
       "command": "npx",
       "args": [
         "-y",

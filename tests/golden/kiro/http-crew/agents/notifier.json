@@ -1,0 +1,28 @@
+{
+  "name": "notifier",
+  "description": "Posts a weekly summary.",
+  "prompt": "# Notifier\n\nSummarise the week and post it.\n",
+  "tools": [
+    "fs_read",
+    "grep",
+    "execute_bash",
+    "@hooks"
+  ],
+  "allowedTools": [
+    "fs_read",
+    "grep"
+  ],
+  "mcpServers": {
+    "hooks": {
+      "type": "http",
+      "url": "https://hooks.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${hooks_token}"
+      }
+    }
+  },
+  "includeMcpJson": false,
+  "resources": [
+    "file://<REPO>/tests/fixtures/http-crew/instructions.md"
+  ]
+}

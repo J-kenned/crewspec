@@ -1,0 +1,25 @@
+version: "0.2"
+name: http-crew
+instructions: instructions.md
+
+agents:
+  notifier:
+    persona: agents/notifier.md
+    allowed_tools: [Read, Grep, Bash, "mcp__hooks__*"]
+    triggers:
+      - provider: cron
+        cron: "0 9 * * 1"
+    secrets:
+      hooks_token:
+        ref: vault://hooks/notifier
+        hosts: [hooks.example.com]
+    limits:
+      tokens_per_run: 1000
+      wall_clock_s: 120
+
+mcps:
+  hooks:
+    type: http
+    url: https://hooks.example.com/mcp
+    headers:
+      Authorization: "Bearer ${secret:hooks_token}"

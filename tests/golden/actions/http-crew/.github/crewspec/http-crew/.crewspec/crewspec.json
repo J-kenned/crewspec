@@ -1,0 +1,10 @@
+{
+  "name": "http-crew",
+  "mcps": [
+    "hooks"
+  ],
+  "instructions": false,
+  "workflows": [
+    "http-crew-notifier.yml"
+  ]
+}

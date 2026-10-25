@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "hooks": {
+      "type": "http",
+      "url": "https://hooks.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${hooks_token}"
+      }
+    }
+  }
+}

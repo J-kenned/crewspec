@@ -14,9 +14,10 @@ What the target can hold is translated, the rest is withheld and reported:
 * ``allowed_tools`` → ``--allowedTools``; ``limits.deny`` → ``--disallowedTools``
   in the CLI's ``Bash(<glob>)`` rule syntax; ``limits.wall_clock_s`` →
   ``timeout-minutes``.
-* ``secrets`` → job ``env`` entries by NAME only (``name: ${{ secrets.NAME }}``,
-  with a ``GITHUB_*`` name mapped to the workflow's own ``GITHUB_TOKEN``); the
-  value lives in the repository's secret store, never in the workflow.
+* ``secrets`` → job ``env`` entries by NAME only (``name: ${{ secrets.NAME }}``).
+  ``github_token`` maps to the workflow's own ``GITHUB_TOKEN``; any other name
+  starting ``GITHUB_`` is refused, since GitHub reserves that prefix.
+* ``instructions`` → prepended to every workflow's prompt.
 * ``mcps`` → ``.github/crewspec/<pack>/mcp.json`` passed with ``--mcp-config``.
 * ``sandbox``, ``approvals``, ``channels``, token limits → withheld (a hosted
   runner is the sandbox; there is no approvals inbox to route to).
@@ -36,12 +37,11 @@ from pathlib import Path
 import yaml
 
 from crewspec.emitters.base import Emitter, PackState
-from crewspec.emitters.codex import _server_dict
-from crewspec.emitters.errors import EmitError, MissingPersonaDescription
+from crewspec.emitters.claude import _server_dict
+from crewspec.emitters.errors import EmitError
 from crewspec.emitters.kiro import reachable_mcps
 from crewspec.ir import ResolvedAgent, ResolvedIR
 from crewspec.models.runtime import Trigger
-from crewspec.parser.frontmatter import split_frontmatter
 
 ACTION = "anthropics/claude-code-action@v1"
 
@@ -66,8 +66,6 @@ class ActionsEmitter(Emitter):
         "triggers": "translated",
         "limits": "translated",
         "secrets": "translated",
-        "mcps": "delivered",
-        "tools": "delivered",
     }
 
     def emit(self, ir: ResolvedIR, dest: Path) -> None:
@@ -76,7 +74,7 @@ class ActionsEmitter(Emitter):
         workflows = {
             self._workflow_name(ir.name, agent): self._workflow(ir, agent)
             for agent in ir.agents
-            if any(t.provider != "channel" for t in agent.triggers)
+            if _events(agent.triggers)[0]
         }
         if not workflows:
             raise EmitError(
@@ -94,7 +92,7 @@ class ActionsEmitter(Emitter):
         ).write(self.state_path(dest, ir.name))
 
         if ir.mcps:
-            servers = {m.name: _server_dict(m.server, set()) for m in ir.mcps}
+            servers = {m.name: _server_dict(m.server) for m in ir.mcps}
             (pack_root / "mcp.json").write_text(
                 json.dumps({"mcpServers": servers}, indent=2) + "\n"
             )
@@ -118,7 +116,10 @@ class ActionsEmitter(Emitter):
         return f"{pack}-{agent.name}.yml"
 
     def _workflow(self, ir: ResolvedIR, agent: ResolvedAgent) -> dict[str, object]:
-        description, body = _read_persona(agent)
+        description, body = self.read_persona(agent)
+        body = body.strip("\n")
+        if ir.instructions is not None:
+            body = ir.instructions.read_text().strip("\n") + "\n\n" + body
         on, condition = _events(agent.triggers)
         job: dict[str, object] = {
             "runs-on": "ubuntu-latest",
@@ -135,7 +136,7 @@ class ActionsEmitter(Emitter):
             job["timeout-minutes"] = max(1, math.ceil(agent.limits.wall_clock_s / 60))
         # The env key is the declared secret name so the ``${name}`` placeholders
         # in mcp.json resolve; the value comes from the repository secret store.
-        env = {name: _secret_expr(name) for name in agent.secrets}
+        env = {name: _secret_expr(agent.name, name) for name in agent.secrets}
         if env:
             job["env"] = env
         job["steps"] = [
@@ -160,14 +161,6 @@ class ActionsEmitter(Emitter):
             },
             "jobs": {agent.name.replace("-", "_"): job},
         }
-
-
-def _read_persona(agent: ResolvedAgent) -> tuple[str, str]:
-    meta, body = split_frontmatter(agent.persona_path.read_text())
-    description = meta.get("description") if meta else None
-    if not isinstance(description, str) or not description:
-        raise MissingPersonaDescription(agent.name, agent.persona_path)
-    return description, body.strip("\n")
 
 
 def _events(triggers: tuple[Trigger, ...]) -> tuple[dict[str, object], str | None]:
@@ -206,11 +199,13 @@ def _prompt(triggers: tuple[Trigger, ...], body: str) -> str:
     kinds = {t.provider for t in triggers}
     if "github" in kinds:
         lead = (
-            "Triggered by GitHub event `${{ github.event_name }}`"
-            " on #${{ github.event.issue.number || github.event.pull_request.number }}:"
-            " ${{ github.event.issue.title || github.event.pull_request.title }}\n\n"
+            "${{ github.event_name != 'schedule' && format("
+            "'Triggered by GitHub event `{0}` on #{1}: {2}', github.event_name,"
+            " github.event.issue.number || github.event.pull_request.number,"
+            " github.event.issue.title || github.event.pull_request.title) || '' }}"
+            "\n\n"
         )
-    return lead + body + "\n"
+    return lead + body.strip("\n") + "\n"
 
 
 def _claude_args(ir: ResolvedIR, agent: ResolvedAgent) -> str:
@@ -238,12 +233,21 @@ def _quote(value: str) -> str:
     return '"' + value.replace('"', '\\"') + '"'
 
 
-def _secret_expr(secret: str) -> str:
-    """``${{ secrets.NAME }}`` for a declared secret. GitHub reserves the
-    ``GITHUB_`` prefix for its own names, so a secret that would land there maps
-    to the workflow's ``GITHUB_TOKEN`` — the token a GitHub MCP server wants."""
+def _secret_expr(agent: str, secret: str) -> str:
+    """``${{ secrets.NAME }}`` for a declared secret.
+
+    ``github_token`` is the one name every GitHub MCP server wants and maps to
+    the workflow's own ``GITHUB_TOKEN``. GitHub refuses any other repository
+    secret whose name starts ``GITHUB_``, so such a declaration is an error
+    here rather than a workflow that fails at its first run.
+    """
 
     name = secret.upper().replace("-", "_")
+    if name == "GITHUB_TOKEN":
+        return "${{ secrets.GITHUB_TOKEN }}"
     if name.startswith("GITHUB_"):
-        name = "GITHUB_TOKEN"
+        raise EmitError(
+            f"agent '{agent}' secret '{secret}' would become repository secret "
+            f"'{name}'; GitHub reserves the GITHUB_ prefix. Rename it."
+        )
     return f"${{{{ secrets.{name} }}}}"

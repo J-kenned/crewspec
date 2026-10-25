@@ -17,7 +17,8 @@ from crewspec.models.runtime import Limits, Secret, Trigger
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = REPO_ROOT / "examples" / "night-shift"
-GOLDEN = REPO_ROOT / "tests" / "golden" / "actions" / "night-shift"
+HTTP_FIXTURE = Path(__file__).parent / "fixtures" / "http-crew"
+GOLDEN = REPO_ROOT / "tests" / "golden" / "actions"
 UPDATE_GOLDEN = os.environ.get("UPDATE_GOLDEN") == "1"
 PACK = "pack"
 
@@ -94,14 +95,17 @@ def test_label_and_cron_triggers_become_events_with_a_label_guard(
         == "github.event_name != 'issues' || github.event.label.name == 'night'"
     )
     assert job["timeout-minutes"] == 61
-    # Secrets by name only; a GITHUB_ name maps to the workflow token.
+    # Secrets by name only; github_token is the workflow's own token.
     assert job["env"] == {
         "github_token": "${{ secrets.GITHUB_TOKEN }}",
         "slack_bot": "${{ secrets.SLACK_BOT }}",
     }
     step = job["steps"][1]
     assert step["uses"] == "anthropics/claude-code-action@v1"
-    assert step["with"]["prompt"].startswith("Triggered by GitHub event")
+    # The event lead is an expression that renders empty on a schedule run.
+    assert step["with"]["prompt"].startswith(
+        "${{ github.event_name != 'schedule' && format("
+    )
     assert "# ns\n\nDo it." in step["with"]["prompt"]
     args = step["with"]["claude_args"]
     assert '--allowedTools "Read,Bash,mcp__gh__*"' in args
@@ -111,7 +115,12 @@ def test_label_and_cron_triggers_become_events_with_a_label_guard(
     )
     assert f"--mcp-config .github/crewspec/{PACK}/mcp.json" in args
     mcp = json.loads((dest / ".github" / "crewspec" / PACK / "mcp.json").read_text())
-    assert mcp["mcpServers"]["gh"]["env"] == {"TOKEN": "${github_token}"}
+    assert mcp["mcpServers"]["gh"] == {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "gh"],
+        "env": {"TOKEN": "${github_token}"},
+    }
     assert (
         "vault://"
         not in (dest / ".github" / "workflows" / f"{PACK}-ns.yml").read_text()
@@ -177,25 +186,42 @@ def _snapshot(root: Path) -> dict[str, str]:
     }
 
 
-def test_night_shift_matches_golden(tmp_path: Path, run_cli) -> None:
+@pytest.mark.parametrize(
+    ("source", "name"), [(EXAMPLE, "night-shift"), (HTTP_FIXTURE, "http-crew")]
+)
+def test_pack_matches_golden(tmp_path: Path, run_cli, source: Path, name: str) -> None:
     out = tmp_path / "repo"
-    result = run_cli("install", str(EXAMPLE), "--target", "actions", "--out", str(out))
+    result = run_cli("install", str(source), "--target", "actions", "--out", str(out))
     assert result.exit_code == 0, result.output
     emitted = _snapshot(out)
+    golden = GOLDEN / name
 
     if UPDATE_GOLDEN:
-        if GOLDEN.exists():
-            shutil.rmtree(GOLDEN)
+        if golden.exists():
+            shutil.rmtree(golden)
         for rel, text in emitted.items():
-            (GOLDEN / rel).parent.mkdir(parents=True, exist_ok=True)
-            (GOLDEN / rel).write_text(text)
+            (golden / rel).parent.mkdir(parents=True, exist_ok=True)
+            (golden / rel).write_text(text)
 
-    assert GOLDEN.is_dir(), (
+    assert golden.is_dir(), (
         "regenerate with UPDATE_GOLDEN=1 uv run pytest tests/test_emitter_actions.py"
     )
-    assert emitted == _snapshot(GOLDEN)
-    # The workflow the example produces is valid YAML with the expected shape.
-    wf = yaml.safe_load(
-        (GOLDEN / ".github" / "workflows" / "night-shift-night-shift.yml").read_text()
+    assert emitted == _snapshot(golden)
+
+
+def test_http_server_and_instructions_in_golden() -> None:
+    golden = GOLDEN / "http-crew"
+    mcp = json.loads(
+        (golden / ".github" / "crewspec" / "http-crew" / "mcp.json").read_text()
     )
-    assert wf["jobs"]["night_shift"]["timeout-minutes"] == 60
+    assert mcp["mcpServers"]["hooks"] == {
+        "type": "http",
+        "url": "https://hooks.example.com/mcp",
+        "headers": {"Authorization": "Bearer ${hooks_token}"},
+    }
+    wf = yaml.safe_load(
+        (golden / ".github" / "workflows" / "http-crew-notifier.yml").read_text()
+    )
+    prompt = wf["jobs"]["notifier"]["steps"][1]["with"]["prompt"]
+    assert prompt.startswith("Always report in one paragraph.\n\n# Notifier")
+    assert wf["jobs"]["notifier"]["timeout-minutes"] == 2

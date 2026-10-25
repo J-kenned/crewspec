@@ -1,0 +1,35 @@
+name: 'http-crew: notifier'
+'on':
+  schedule:
+  - cron: 0 9 * * 1
+concurrency:
+  group: crewspec-http-crew-notifier
+  cancel-in-progress: false
+jobs:
+  notifier:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    timeout-minutes: 2
+    env:
+      hooks_token: ${{ secrets.HOOKS_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: notifier
+      uses: anthropics/claude-code-action@v1
+      with:
+        anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        prompt: 'Always report in one paragraph.
+
+
+          # Notifier
+
+
+          Summarise the week and post it.
+
+          '
+        claude_args: --allowedTools "Read,Grep,Bash,mcp__hooks__*" --mcp-config .github/crewspec/http-crew/mcp.json

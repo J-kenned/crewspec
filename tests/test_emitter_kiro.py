@@ -15,7 +15,8 @@ from crewspec.models import StdioMcpServer
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = REPO_ROOT / "examples" / "night-shift"
-GOLDEN = REPO_ROOT / "tests" / "golden" / "kiro" / "night-shift"
+HTTP_FIXTURE = Path(__file__).parent / "fixtures" / "http-crew"
+GOLDEN = REPO_ROOT / "tests" / "golden" / "kiro"
 UPDATE_GOLDEN = os.environ.get("UPDATE_GOLDEN") == "1"
 PACK = "pack"
 
@@ -77,9 +78,10 @@ def test_agent_spec_translates_tools_and_inlines_prompt(tmp_path: Path) -> None:
     assert spec["name"] == "rev"
     assert spec["description"] == "Does things"
     assert spec["prompt"].startswith("# rev\n")
-    # Claude names collapse onto kiro-cli built-ins, deduplicated, in order.
-    assert spec["tools"] == ["fs_read", "execute_bash", "@gh", "@jira/get"]
-    assert spec["allowedTools"] == spec["tools"]
+    # Claude names map onto kiro-cli built-ins, deduplicated, in order.
+    assert spec["tools"] == ["fs_read", "grep", "execute_bash", "@gh", "@jira/get"]
+    # Only read-only tools are auto-approved; writes and shell keep kiro's gate.
+    assert spec["allowedTools"] == ["fs_read", "grep"]
     # Only reachable servers are mounted, and the global mcp.json stays off.
     assert sorted(spec["mcpServers"]) == ["gh", "jira"]
     assert spec["mcpServers"]["gh"]["env"] == {"T": "${tok}"}
@@ -89,8 +91,8 @@ def test_agent_spec_translates_tools_and_inlines_prompt(tmp_path: Path) -> None:
     ]
     assert spec["model"] == "claude-opus-5-5"
     assert (dest / "skills" / "lint" / "SKILL.md").is_file()
-    manifest = json.loads((dest / "crewspec" / PACK / "app.json").read_text())
-    assert manifest["agents"] == ["../../agents/rev.json"]
+    state = json.loads((dest / "crewspec" / PACK / "crewspec.json").read_text())
+    assert state["agents"] == ["rev"] and state["skills"] == ["lint"]
 
 
 def test_no_grants_means_every_tool_and_server(tmp_path: Path) -> None:
@@ -100,6 +102,7 @@ def test_no_grants_means_every_tool_and_server(tmp_path: Path) -> None:
     spec = _spec(_emit(tmp_path, ir), "all")
 
     assert spec["tools"] == ["*"]
+    assert spec["allowedTools"] == [], "a wildcard grant auto-approves nothing"
     assert sorted(spec["mcpServers"]) == ["a", "b"]
     assert "model" not in spec
 
@@ -120,6 +123,7 @@ def test_skill_deps_reach_servers_and_unknown_tool_warns(tmp_path: Path) -> None
         spec = _spec(_emit(tmp_path, ir), "a")
 
     assert spec["tools"] == ["fs_read", "Odd"]
+    assert spec["allowedTools"] == ["fs_read"]
     assert list(spec["mcpServers"]) == ["viaskill"]
 
 
@@ -177,34 +181,41 @@ def test_withheld_blocks_never_reach_the_spec(tmp_path: Path) -> None:
 
 
 def _snapshot(root: Path) -> dict[str, str]:
-    """Files under ``root`` with the install dir replaced by ``<OUT>`` so the
-    absolute ``skill://`` URI in the agent spec compares across machines."""
+    """Files under ``root`` with the install dir and the repo root replaced by
+    ``<OUT>`` / ``<REPO>`` so absolute ``skill://`` and ``file://`` URIs in the
+    agent spec compare across machines."""
 
     return {
-        p.relative_to(root).as_posix(): p.read_text().replace(root.as_posix(), "<OUT>")
+        p.relative_to(root).as_posix(): p.read_text()
+        .replace(root.as_posix(), "<OUT>")
+        .replace(REPO_ROOT.as_posix(), "<REPO>")
         for p in sorted(root.rglob("*"))
         if p.is_file()
     }
 
 
-def test_night_shift_matches_golden(tmp_path: Path, run_cli) -> None:
+@pytest.mark.parametrize(
+    ("source", "name"), [(EXAMPLE, "night-shift"), (HTTP_FIXTURE, "http-crew")]
+)
+def test_pack_matches_golden(tmp_path: Path, run_cli, source: Path, name: str) -> None:
     out = tmp_path / "kiro"
-    result = run_cli("install", str(EXAMPLE), "--target", "kiro", "--out", str(out))
+    result = run_cli("install", str(source), "--target", "kiro", "--out", str(out))
     assert result.exit_code == 0, result.output
     emitted = _snapshot(out)
+    golden = GOLDEN / name
 
     if UPDATE_GOLDEN:
-        if GOLDEN.exists():
-            shutil.rmtree(GOLDEN)
+        if golden.exists():
+            shutil.rmtree(golden)
         for rel, text in emitted.items():
-            (GOLDEN / rel).parent.mkdir(parents=True, exist_ok=True)
-            (GOLDEN / rel).write_text(text)
+            (golden / rel).parent.mkdir(parents=True, exist_ok=True)
+            (golden / rel).write_text(text)
 
-    assert GOLDEN.is_dir(), (
+    assert golden.is_dir(), (
         "regenerate with UPDATE_GOLDEN=1 uv run pytest tests/test_emitter_kiro.py"
     )
     assert emitted == {
-        p.relative_to(GOLDEN).as_posix(): p.read_text()
-        for p in sorted(GOLDEN.rglob("*"))
+        p.relative_to(golden).as_posix(): p.read_text()
+        for p in sorted(golden.rglob("*"))
         if p.is_file()
     }
