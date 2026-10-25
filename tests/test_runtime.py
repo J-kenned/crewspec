@@ -233,3 +233,12 @@ def test_sandbox_mounts_parse_with_ro_default_and_reject_bad_mode() -> None:
     assert [(m.path, m.mode) for m in mounts] == [("/srv/data", "ro"), ("/srv/out", "rw")]
     with pytest.raises(ValidationError):
         CrewDoc.model_validate(_doc(limits=LIMITS, sandbox={"kind": "docker", "mounts": [{"path": "/x", "mode": "rwx"}]}))
+
+
+def test_secret_login_url_is_web_login_only_field() -> None:
+    from crewspec.models.runtime import Secret
+
+    s = Secret(ref="vault://jira/demo", kind="web-login", hosts=["jira.example.com"],
+               login_url="https://jira.example.com/login")
+    assert s.login_url == "https://jira.example.com/login"
+    assert Secret(ref="vault://x/y").login_url is None

@@ -146,7 +146,7 @@ declares.
 | `crewspec install SOURCE`  | Parse, resolve, and write artifacts. `--target` is `claude` (default), `codex`, `kiro` or `actions`. `--out DIR` defaults to `.` (`~/.kiro` for kiro, the repo root for actions). `--dry-run` stops before writing. |
 | `crewspec validate SOURCE` | Parse and resolve, then print the resolved plan: the pack name, each agent's tools and skills, every skill and MCP server, and any warnings. `--json` prints JSON instead. Writes nothing. |
 | `crewspec uninstall NAME`  | Remove the pack `NAME` installed under `--out DIR` for `--target` (default `claude`): its plugin directory, its `mcpServers` keys and `CLAUDE.md` block on Claude, its marketplace entry on Codex. Nothing else is touched. An unknown name is an error. |
-| `crewspec list`            | List the packs installed under `--out DIR` (default `.`): per pack, the target, name, plugin path, agents, skills, and MCP servers. `--target` limits it to `claude` or `codex`. `--json` prints JSON instead. Writes nothing. |
+| `crewspec list`            | List the packs installed under `--out DIR` (default `.`): per pack, the target, name, plugin path, agents, skills, and MCP servers. `--target` limits it to one of `claude`, `codex`, `kiro`, `actions`. `--json` prints JSON instead. Writes nothing. |
 
 `SOURCE` is a `.crewfile`, a `crewspec.yaml`, a directory containing one, or a
 `github:` shorthand (below). A directory with a `crewspec.yaml` uses that file.
@@ -199,7 +199,7 @@ YAML anchors. See `examples/night-shift/` for a real one.
 | `triggers` | what wakes the agent: `provider` (`github`, `cron`, `webhook`, `channel`), `type`, `filter`, `cron` or `fire_at`, `prompt`, `claim`, `coalesce`, `deliver_only` |
 | `channels` | where it talks: `kind` (`slack`, `github`, `cli`, `push`), `binding`, `approvals_inbox` |
 | `sandbox` | `kind` (`none`, `docker`, `vm`), `policy`, `network` (`none`, `broker-only`, `allowlist` + `allow`), `host_access`, `disk_mb`, `leaves`, `mounts` (`path`, `mode: ro|rw`; only with `host_access: host-disk`) |
-| `secrets` | name → `ref: vault://…`, `blind` (default `true`), `hosts`, `kind`. For `kind: web-login`, `hosts` is the list of origins the runtime's login tool may fill; fill is refused elsewhere. |
+| `secrets` | name → `ref: vault://…`, `blind` (default `true`), `hosts`, `kind`. For `kind: web-login`, `hosts` is the list of origins the runtime's login tool may fill; fill is refused elsewhere. `login_url` (optional) is the page that tool opens; its host must be in `hosts`. |
 | `limits` | `tokens_per_run` and `wall_clock_s` (both required), `tokens_per_day`, `max_prs_per_night`, `retries`, `deny` |
 | `approvals` | `policy`, `ask` (closed list: `send post pay sign delete merge promote`), `timeout_s`, `on_timeout`, `deferred`, `unattended` |
 
@@ -227,12 +227,14 @@ in `--json`).
 
 `--target kiro` writes kiro-cli agent specs: one `agents/<agent>.json` per
 agent (persona inlined as `prompt`, `allowed_tools` translated to kiro-cli names
-such as `fs_read` / `execute_bash` / `@server/tool`, the reachable `mcpServers`
-inline with `includeMcpJson: false`, one `skill://` resource per skill, and
-`model` from `x-operative.model`), the skills copied under `skills/`, and an
-`app.json` manifest under `crewspec/<pack>/`. Point `--out` at `~/.kiro` and run
-`kiro-cli --agent <agent>`. kiro-cli rejects unknown keys, so the 0.2 blocks are
-withheld.
+such as `fs_read` / `grep` / `execute_bash` / `@server/tool`, `allowedTools`
+holding only the read-only subset so nothing that writes or runs skips kiro's
+own prompt, the reachable `mcpServers` inline with `includeMcpJson: false`, one
+`skill://` resource per skill plus a `file://` resource for `instructions`, and
+`model` from `x-operative.model`), the skills copied under `skills/`, and the
+state file under `crewspec/<pack>/`. `--out` defaults to `.`; point it at
+`~/.kiro` and run `kiro-cli --agent <agent>`. kiro-cli rejects unknown keys, so
+the 0.2 blocks are withheld.
 
 `--target actions` is the zero-infrastructure fallback for a label- or
 schedule-driven agent (night shift, a PR checker): one
@@ -240,29 +242,46 @@ schedule-driven agent (night shift, a PR checker): one
 `webhook` trigger, running `anthropics/claude-code-action` with the persona as
 the prompt. Triggers become `on:` events (a label filter becomes the job `if`),
 `allowed_tools` and `limits.deny` become `--allowedTools` / `--disallowedTools`,
-`limits.wall_clock_s` becomes `timeout-minutes`, and secrets are referenced by
-name as `${{ secrets.NAME }}` (a `GITHUB_*` name maps to the workflow's own
-`GITHUB_TOKEN`). MCP servers go to `.github/crewspec/<pack>/mcp.json`. Sandbox,
-approvals, channels and token limits have no home on a hosted runner and are
-withheld. Point `--out` at the repository root.
+`limits.wall_clock_s` becomes `timeout-minutes`, `instructions` is prepended to
+the prompt, and secrets are referenced by name as `${{ secrets.NAME }}`
+(`github_token` is the workflow's own `GITHUB_TOKEN`; any other `GITHUB_*` name
+is refused because GitHub reserves the prefix). MCP servers go to
+`.github/crewspec/<pack>/mcp.json`. Sandbox, approvals, channels and token
+limits have no home on a hosted runner and are withheld. `--out` defaults to
+`.`; point it at the repository root.
 
 ## Import an existing Claude Code layout
 
 ```bash
-crewspec init --from-claude ~/some-project --out ./some-project
-crewspec validate ./some-project
+crewspec init --from-claude ~/some-project          # writes ~/some-project-crew/
+crewspec validate ~/some-project-crew
 ```
 
-`init` reads `.claude/agents/*.md`, every `SKILL.md` under `.claude/skills/`,
+`init` reads `.claude/agents/*.md`, every fenced `SKILL.md` under
+`.claude/skills/` (skipping `node_modules` and hidden directories),
 `mcpServers` from `.mcp.json` / `.claude.json`, and `CLAUDE.md`, and writes a
-0.2 pack. A crewspec-emitted plugin imports back to the same agents, skills,
-deps, and servers. Credentials in MCP config are replaced by `${secret:NAME}`
-with a generated `secrets:` block (`vault://<pack>/NAME`, blind) on every agent
-that can reach the server; a literal credential is dropped with a warning and
-never copied. Not recoverable from a Claude layout: the original `version`,
-crewfile comments, `depends_on` edges added beyond a skill's own frontmatter,
-and the 0.2 runtime blocks (Claude never received them), so `init` is the start
-of a pack, not a lossless export.
+0.2 pack to a `<name>-crew` sibling of the source (or `--out`, which may not sit
+inside the source or contain it). A crewspec-emitted plugin imports back to the
+same agents, skills, deps, and servers. The agent key is the slugified
+frontmatter `name`, else the slugified file stem.
+
+Secrets: every position the loader scans (`command`, `args`, `env`, `url`,
+headers) is scrubbed. A `${secret:NAME}` is kept and declared. A `${VAR}` under
+a credential key (`*TOKEN*`, `*KEY*`, ...) or in any header becomes
+`${secret:VAR}`; under any other key it stays an env reference. A literal that
+looks like a credential (known prefix such as `ghp_`, a 40+ character
+mixed-case-and-digit run, a `Bearer <value>` header, or any literal under a
+credential key) is replaced wholesale, so `Authorization: Bearer <literal>`
+becomes `${secret:AUTHORIZATION}`, with a warning; the value is never copied.
+Each reaching agent gets a `secrets:` entry (`vault://<pack>/NAME`, blind). A
+server whose secrets no agent reaches is dropped with a warning so the pack
+validates.
+
+Not recoverable from a Claude layout: the original `version`, crewfile comments
+and key order, `depends_on` edges added beyond a skill's own frontmatter, the
+0.2 runtime blocks (Claude never received them), the secret `ref` (regenerated
+from the name), and an agent key that matched neither the frontmatter name nor
+the file stem. `init` is the start of a pack, not a lossless export.
 
 ## Design docs
 

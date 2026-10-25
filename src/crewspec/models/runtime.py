@@ -101,6 +101,9 @@ class Secret(_Strict):
     blind: bool = True
     hosts: list[str] = Field(default_factory=list)
     kind: Literal["api", "web-login"] = "api"
+    #: ``kind: web-login`` only: the page the runtime's login tool opens. Its host
+    #: must be one of ``hosts``; absent means the origin itself.
+    login_url: str | None = None
 
 
 class Limits(_Strict):
