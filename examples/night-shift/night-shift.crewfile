@@ -72,7 +72,7 @@ agents:
       unattended: deny
     x-operative:
       backend: claude_code             # D7d: emitter is the adapter
-      memory_policy: {write: broad, read: persona-curated}
+      memory_policy: {durable_memory: true, candidate_memory: true}
       model: claude-opus-5-5
 
 skills:
