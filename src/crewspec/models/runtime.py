@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 #: Agent keys that are 0.2 blocks. Order is the order ``withheld`` reports them.
 RUNTIME_BLOCKS = ("triggers", "channels", "sandbox", "secrets", "limits", "approvals")
@@ -46,7 +46,7 @@ class OnFailure(_Strict):
 class Trigger(_Strict):
     """One thing that wakes the agent. ``prompt`` is the brief it receives."""
 
-    provider: Literal["github", "cron", "webhook", "channel", "linear", "gmail"]
+    provider: Literal["github", "cron", "webhook", "channel"]
     type: str | None = None
     filter: dict[str, str] = Field(default_factory=dict)
     cron: str | None = None
@@ -72,7 +72,6 @@ class Leaves(_Strict):
 
 class Sandbox(_Strict):
     kind: Literal["none", "docker", "vm"]
-    scope: Literal["run"] = "run"
     required: bool = False
     policy: Literal["read-only", "workspace-write", "full-access"] = "read-only"
     network: Literal["none", "broker-only", "allowlist"] = "none"
@@ -80,12 +79,6 @@ class Sandbox(_Strict):
     host_access: Literal["none", "own-machine", "host-ui", "host-disk"] = "none"
     disk_mb: int | None = None
     leaves: Leaves = Field(default_factory=Leaves)
-
-    @model_validator(mode="after")
-    def _allow_matches_network(self) -> Sandbox:
-        if (self.network == "allowlist") != bool(self.allow):
-            raise ValueError("sandbox.allow must be set iff network is 'allowlist'")
-        return self
 
 
 class Secret(_Strict):
