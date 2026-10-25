@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 import yaml
+from click.testing import Result
 
 from crewspec.importers import ImportError_, import_claude, slugify
 from crewspec.parser import load_crewfile, resolve_crewfile
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "code-review-crew"
+GHP = "ghp_Abc123def456GHI789jkl012MNO345pqr678"
+Runner = Callable[..., Result]
 
 
 def _load(path: Path):  # type: ignore[no-untyped-def]
     return load_crewfile(resolve_crewfile(path))
 
 
-def test_round_trip_from_emitted_plugin(tmp_path: Path, run_cli) -> None:  # type: ignore[no-untyped-def]
+def _doc(out: Path, name: str) -> dict:  # type: ignore[type-arg]
+    return yaml.safe_load((out / f"{name}.crewfile").read_text())
+
+
+def test_round_trip_from_emitted_plugin(tmp_path: Path, run_cli: Runner) -> None:
     installed = tmp_path / "T"
     assert run_cli("install", str(EXAMPLE), "--out", str(installed)).exit_code == 0
 
@@ -93,36 +101,38 @@ def _hand_made(root: Path, *, mcp_file: str = ".mcp.json") -> None:
     (root / "CLAUDE.md").write_text("# House rules\n\nBe brief.\n")
 
 
-def test_hand_made_layout_never_copies_a_credential(tmp_path: Path, run_cli) -> None:  # type: ignore[no-untyped-def]
+def test_hand_made_layout_never_copies_a_credential(
+    tmp_path: Path, run_cli: Runner, capsys: pytest.CaptureFixture[str]
+) -> None:
     src = tmp_path / "proj"
     _hand_made(src)
     out = tmp_path / "pack"
     crewfile = import_claude(src, out, name="proj")
+    err = capsys.readouterr().err
 
     text = crewfile.read_text()
     assert "sk-abcdef1234567890" not in text
     assert "${secret:API_KEY}" in text
-    assert "Bearer ${secret:EXAMPLE_TOKEN}" in text
     assert "PORT: '8080'" in text or "PORT: 8080" in text
-    assert "${MODE:-fast}" in text
+    assert "${MODE:-fast}" in text  # ${X} under a non-credential key stays env
+    assert "mcpServers.api.API_KEY held a literal credential" in err
 
     doc = yaml.safe_load(text)
     assert doc["version"] == "0.2"
     helper = doc["agents"]["helper"]
     assert helper["allowed_tools"] == ["Read", "mcp__api__*"]
     assert helper["depends_on"] == {"skills": ["tidy"]}
-    # Reaches `api` only (via the tool glob), so only its secret is declared.
     assert helper["secrets"] == {
         "API_KEY": {"ref": "vault://proj/API_KEY", "blind": True}
     }
     assert (out / "instructions.md").read_text() == "# House rules\n\nBe brief.\n"
     assert "custom: kept" in (out / "agents" / "helper.md").read_text()
 
-    # EXAMPLE_TOKEN is reachable by nobody, so 0.2 validation rejects the pack
-    # until a human declares it: the importer surfaces the gap, not hides it.
-    result = run_cli("validate", str(out))
-    assert result.exit_code != 0
-    assert "EXAMPLE_TOKEN" in result.output
+    # `remote` needs EXAMPLE_TOKEN but no agent reaches it: dropped with a
+    # warning so the pack validates instead of failing on an undeclared secret.
+    assert "remote" not in doc["mcps"]
+    assert "dropped mcps.remote" in err and "EXAMPLE_TOKEN" in err
+    assert run_cli("validate", str(out)).exit_code == 0
 
 
 def test_inherit_all_agent_declares_every_secret(tmp_path: Path) -> None:
@@ -133,9 +143,153 @@ def test_inherit_all_agent_declares_every_secret(tmp_path: Path) -> None:
     )
     out = tmp_path / "pack"
     import_claude(src, out, name="proj")
-    doc = yaml.safe_load((out / "proj.crewfile").read_text())
+    doc = _doc(out, "proj")
     assert set(doc["agents"]["boss"]["secrets"]) == {"API_KEY", "EXAMPLE_TOKEN"}
     assert "allowed_tools" not in doc["agents"]["boss"]
+    # Reached by `boss` now, so `remote` is kept with a secret ref, not a value.
+    assert doc["mcps"]["remote"]["headers"] == {
+        "Authorization": "Bearer ${secret:EXAMPLE_TOKEN}"
+    }
+
+
+def _secret_positions(root: Path) -> None:
+    (root / ".claude" / "agents").mkdir(parents=True)
+    (root / ".claude" / "agents" / "all.md").write_text(
+        "---\nname: all\ndescription: Reaches everything.\n---\n\nGo.\n"
+    )
+    (root / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "gh": {
+                        "command": "npx",
+                        "args": ["-y", "server", "--token", GHP],
+                        "env": {"MODE": "${secret:MODE_X}"},
+                    },
+                    "web": {
+                        "type": "http",
+                        "url": "https://x.example.com/${REGION}/",
+                        "headers": {
+                            "X-Api": f"Bearer {GHP}",
+                            "X-Region": "${REGION}",
+                            "Accept": "application/json",
+                        },
+                    },
+                    "opaque": {
+                        "command": "server",
+                        "env": {
+                            "SESSION": "aB3" * 14,
+                            "LOWER": "abcdefghijklmnopqrstuvwxyz0123456789abcdefgh",
+                        },
+                    },
+                }
+            }
+        )
+    )
+
+
+def test_every_secret_bearing_position_is_scrubbed(
+    tmp_path: Path, run_cli: Runner, capsys: pytest.CaptureFixture[str]
+) -> None:
+    src = tmp_path / "proj"
+    _secret_positions(src)
+    out = tmp_path / "pack"
+    crewfile = import_claude(src, out, name="proj")
+    err = capsys.readouterr().err
+    text = crewfile.read_text()
+    doc = yaml.safe_load(text)
+
+    assert GHP not in text
+    assert doc["mcps"]["gh"]["args"] == ["-y", "server", "--token", "${secret:GH_ARG3}"]
+    assert "mcpServers.gh.ARG3 held a literal credential" in err
+    # A pre-existing ${secret:X} under a non-credential key is kept and declared.
+    assert doc["mcps"]["gh"]["env"] == {"MODE": "${secret:MODE_X}"}
+
+    headers = doc["mcps"]["web"]["headers"]
+    assert headers["X-Api"] == "${secret:X_API}"  # bearer literal, whole value
+    assert headers["X-Region"] == "${secret:REGION}"  # any header env ref
+    assert headers["Accept"] == "application/json"  # plain literal survives
+    assert doc["mcps"]["web"]["url"] == "https://x.example.com/${REGION}/"
+    assert "mcpServers.web.X-Api held a literal credential" in err
+
+    # 40+ chars: mixed case + digit is a credential, lowercase-only is not.
+    assert doc["mcps"]["opaque"]["env"]["SESSION"] == "${secret:SESSION}"
+    assert doc["mcps"]["opaque"]["env"]["LOWER"].startswith("abcdefghij")
+
+    assert set(doc["agents"]["all"]["secrets"]) == {
+        "GH_ARG3",
+        "MODE_X",
+        "X_API",
+        "REGION",
+        "SESSION",
+    }
+    assert run_cli("validate", str(out)).exit_code == 0
+
+
+def test_agent_key_prefers_frontmatter_name_and_list_tools(tmp_path: Path) -> None:
+    src = tmp_path / "proj"
+    (src / ".claude" / "agents").mkdir(parents=True)
+    (src / ".claude" / "agents" / "Reviewer Bot.md").write_text(
+        "---\nname: Code Reviewer\ndescription: Reviews.\ntools:\n  - Read\n"
+        "  - mcp__gh__*\n---\n\nReview.\n"
+    )
+    (src / ".claude" / "agents" / "plain.md").write_text(
+        "---\ndescription: No name key.\n---\n\nHi.\n"
+    )
+    out = tmp_path / "pack"
+    import_claude(src, out, name="proj")
+    doc = _doc(out, "proj")
+    assert set(doc["agents"]) == {"code-reviewer", "plain"}
+    assert doc["agents"]["code-reviewer"]["allowed_tools"] == ["Read", "mcp__gh__*"]
+    assert (out / "agents" / "code-reviewer.md").is_file()
+
+
+def test_skips_node_modules_hidden_and_fenceless_skills(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    src = tmp_path / "proj"
+    skills = src / ".claude" / "skills"
+    for rel, body in {
+        "good/SKILL.md": "---\nname: good\ndescription: Good.\n---\n\nOk.\n",
+        "node_modules/dep/SKILL.md": "---\nname: dep\ndescription: Dep.\n---\n",
+        ".hidden/SKILL.md": "---\nname: hidden\ndescription: H.\n---\n",
+        "bare/SKILL.md": "# No fence here\n",
+    }.items():
+        path = skills / rel
+        path.parent.mkdir(parents=True)
+        path.write_text(body)
+    out = tmp_path / "pack"
+    import_claude(src, out, name="proj")
+    err = capsys.readouterr().err
+    assert set(_doc(out, "proj")["skills"]) == {"good"}
+    assert "skipped" in err and "bare" in err and "no frontmatter fence" in err
+
+
+def test_out_may_not_nest_with_src_and_defaults_to_sibling(tmp_path: Path) -> None:
+    src = tmp_path / "proj"
+    _hand_made(src)
+    with pytest.raises(ImportError_, match="inside the source"):
+        import_claude(src, src / "pack", name="proj")
+    with pytest.raises(ImportError_, match="inside --out"):
+        import_claude(src, tmp_path, name="proj")
+    crewfile = import_claude(src, name="proj")
+    assert crewfile == tmp_path / "proj-crew" / "proj.crewfile"
+
+
+def test_malformed_placeholder_is_a_clean_path_line_error(
+    tmp_path: Path, run_cli: Runner
+) -> None:
+    src = tmp_path / "proj"
+    _hand_made(src)
+    (src / ".mcp.json").write_text(
+        '{\n  "mcpServers": {\n    "bad": {\n      "command": "x",\n'
+        '      "env": {"K": "${oops"}\n    }\n  }\n}\n'
+    )
+    result = run_cli("init", "--from-claude", str(src), "--out", str(tmp_path / "o"))
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert f"{src / '.mcp.json'}:5: mcpServers.bad.K:" in result.output
+    assert not (tmp_path / "o").exists()
 
 
 def test_pack_name_is_slugified_or_overridden(tmp_path: Path) -> None:
@@ -150,7 +304,7 @@ def test_pack_name_is_slugified_or_overridden(tmp_path: Path) -> None:
         slugify("!!!")
 
 
-def test_refuses_empty_dir_and_existing_pack(tmp_path: Path, run_cli) -> None:  # type: ignore[no-untyped-def]
+def test_refuses_empty_dir_and_existing_pack(tmp_path: Path, run_cli: Runner) -> None:
     empty = tmp_path / "empty"
     empty.mkdir()
     result = run_cli("init", "--from-claude", str(empty))

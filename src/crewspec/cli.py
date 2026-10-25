@@ -19,6 +19,7 @@ from crewspec import __version__
 from crewspec.emitters import EMITTERS, CodexEmitter, EmitError, dispositions
 from crewspec.importers import ImportError_, import_claude
 from crewspec.installed import InstalledPack, list_installed
+from crewspec.models.interpolate import InterpolationError
 from crewspec.parser import CrewfileError, resolve_crewfile
 from crewspec.pipeline import InstallSummary, build_ir, install
 from crewspec.plan import render_json, render_tree
@@ -224,7 +225,8 @@ def list_cmd(out: Path, target: str | None, as_json: bool) -> None:
     "--out",
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
-    help="Directory to write the pack into. Default: ./<name>.",
+    help="Directory to write the pack into. Default: a <name>-crew sibling of "
+    "--from-claude. May not be inside it or contain it.",
 )
 def init_cmd(from_claude: Path, name: str | None, out: Path | None) -> None:
     """Create a crewfile pack from an existing Claude Code layout.
@@ -236,9 +238,8 @@ def init_cmd(from_claude: Path, name: str | None, out: Path | None) -> None:
     """
 
     try:
-        dest = out if out is not None else Path(name or from_claude.resolve().name)
-        crewfile = import_claude(from_claude, dest, name=name)
-    except (ImportError_, CrewfileError, OSError) as exc:
+        crewfile = import_claude(from_claude, out, name=name)
+    except (ImportError_, CrewfileError, InterpolationError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"Wrote {crewfile}")
     click.echo(f"  next: crewspec validate {crewfile.parent}")
