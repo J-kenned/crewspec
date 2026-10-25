@@ -196,7 +196,7 @@ YAML anchors. See `examples/night-shift/` for a real one.
 
 | Block | Declares |
 | ----- | -------- |
-| `triggers` | what wakes the agent: `provider` (`github`, `cron`, `webhook`, …), `type`, `filter`, `cron` or `fire_at`, `prompt`, `claim`, `coalesce`, `deliver_only` |
+| `triggers` | what wakes the agent: `provider` (`github`, `cron`, `webhook`, `channel`), `type`, `filter`, `cron` or `fire_at`, `prompt`, `claim`, `coalesce`, `deliver_only` |
 | `channels` | where it talks: `kind` (`slack`, `github`, `cli`, `push`), `binding`, `approvals_inbox` |
 | `sandbox` | `kind` (`none`, `docker`, `vm`), `policy`, `network` (`none`, `broker-only`, `allowlist` + `allow`), `host_access`, `disk_mb`, `leaves` |
 | `secrets` | name → `ref: vault://…`, `blind` (default `true`), `hosts`, `kind`. For `kind: web-login`, `hosts` is the list of origins the runtime's login tool may fill; fill is refused elsewhere. |
@@ -211,7 +211,7 @@ Three rules:
    `secrets:` is the only place a name is declared. In 0.2 every `${secret:NAME}`
    an MCP server uses must be declared by at least one agent, and by every agent
    that can reach that server (an `mcp__<server>__…` tool or a skill whose
-   `x-crewspec.mcps` lists it). Undeclared fails at load with the line. 0.1 keeps
+   `x-crewspec.mcps` lists it; an agent with no `allowed_tools` reaches every server). Undeclared fails at load with the line. 0.1 keeps
    the passthrough above. `${VAR}` is for non-secrets and is unchanged.
 3. **`x-<name>` is the escape hatch.** An agent may carry `x-operative:` (or any
    `x-` key) as an opaque mapping for the runtime that owns it. Every other
