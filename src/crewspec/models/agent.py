@@ -49,6 +49,8 @@ class AgentDef(BaseModel):
     def _collect_extensions(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
+        if "extensions" in data:
+            raise ValueError("`extensions` is reserved; write x-<name> keys instead")
         found = {
             k: v
             for k, v in data.items()
@@ -56,8 +58,6 @@ class AgentDef(BaseModel):
         }
         if not found:
             return data
-        if "extensions" in data:
-            raise ValueError("`extensions` is reserved; write x-<name> keys instead")
         for key, value in found.items():
             if not isinstance(value, dict):
                 raise ValueError(f"{key} must be a mapping")

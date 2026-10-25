@@ -281,8 +281,9 @@ def _validate_secret_refs(doc: CrewDoc, registry: NodeRegistry, crewfile: Path) 
 
     Declared means it appears under ``secrets:`` of at least one agent, and of
     every agent that can reach the server: through an ``allowed_tools`` entry
-    ``mcp__<server>__…`` or through a directly depended-on skill whose merged
-    deps list the server. Undeclared is a hole in blinding, so it fails at load.
+    ``mcp__<server>__…``, through a directly depended-on skill whose merged
+    deps list the server, or by inheriting every tool (empty ``allowed_tools``).
+    Undeclared is a hole in blinding, so it fails at load.
     0.1 documents keep the passthrough behaviour and never reach here.
     """
 
@@ -307,6 +308,8 @@ def _validate_secret_refs(doc: CrewDoc, registry: NodeRegistry, crewfile: Path) 
 
 
 def _reachable_mcps(node: AgentNode, registry: NodeRegistry) -> set[str]:
+    if not node.definition.allowed_tools:
+        return set(registry.mcps)  # inherit all: every server is in reach
     via_tools = {
         tool.split("__", 2)[1]
         for tool in node.definition.allowed_tools
@@ -335,6 +338,8 @@ def _secret_names(server: McpServer) -> list[str]:
 
 def _secret_error(secret: str, mcp: str, why: str, crewfile: Path) -> None:
     needle = f"${{secret:{secret}}}"
+    # ponytail: reports the first line containing the needle, not the one under
+    # the named mcp; walk the YAML node tree if it misleads.
     lines = crewfile.read_text().splitlines()
     line = next((i for i, text in enumerate(lines, 1) if needle in text), None)
     raise UnknownReferenceError(
