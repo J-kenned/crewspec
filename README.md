@@ -239,6 +239,24 @@ crewfile comments, `depends_on` edges added beyond a skill's own frontmatter,
 and the 0.2 runtime blocks (Claude never received them), so `init` is the start
 of a pack, not a lossless export.
 
+## Import an existing Claude Code layout
+
+```bash
+crewspec init --from-claude ~/some-project --out ./some-project
+crewspec validate ./some-project
+```
+
+`init` reads `.claude/agents/*.md`, every `SKILL.md` under `.claude/skills/`,
+`mcpServers` from `.mcp.json` / `.claude.json`, and `CLAUDE.md`, and writes a
+0.2 pack. A crewspec-emitted plugin imports back to the same agents, skills,
+deps, and servers. Credentials in MCP config are replaced by `${secret:NAME}`
+with a generated `secrets:` block (`vault://<pack>/NAME`, blind) on every agent
+that can reach the server; a literal credential is dropped with a warning and
+never copied. Not recoverable from a Claude layout: the original `version`,
+crewfile comments, `depends_on` edges added beyond a skill's own frontmatter,
+and the 0.2 runtime blocks (Claude never received them), so `init` is the start
+of a pack, not a lossless export.
+
 ## Design docs
 
 - [crewspec Spec and Design](https://linear.app/kenned/document/crewspec-spec-and-design-959937905db9): the format and CLI.

@@ -191,6 +191,7 @@ def _crewdoc(found: _Found, out: Path) -> dict[str, object]:
     }
 
     agents: dict[str, dict[str, object]] = {}
+    covered: set[str] = set()
     for agent_id, persona in found.agents.items():
         meta, _ = split_frontmatter(persona.read_text())
         meta = meta or {}
@@ -198,16 +199,26 @@ def _crewdoc(found: _Found, out: Path) -> dict[str, object]:
         tools = _tools(meta.get("tools"))
         if tools:
             agent["allowed_tools"] = tools
-        skills = meta.get("skills")
-        if isinstance(skills, list) and skills:
-            agent["depends_on"] = {"skills": [str(s) for s in skills]}
-        reach = _reach(tools, [str(s) for s in skills or []], skill_mcps, set(mcps))
-        names = sorted({n for m in reach for n in secrets_by_mcp.get(m, ())})
-        if names:
+        raw_skills = meta.get("skills")
+        skills = [str(s) for s in raw_skills] if isinstance(raw_skills, list) else []
+        if skills:
+            agent["depends_on"] = {"skills": skills}
+        reach = _reach(tools, skills, skill_mcps, set(mcps))
+        declared = sorted({n for m in reach for n in secrets_by_mcp.get(m, ())})
+        if declared:
             agent["secrets"] = {
-                n: {"ref": f"vault://{found.name}/{n}", "blind": True} for n in names
+                n: {"ref": f"vault://{found.name}/{n}", "blind": True} for n in declared
             }
+            covered.update(declared)
         agents[agent_id] = agent
+
+    for mcp_name, names in secrets_by_mcp.items():
+        for orphan in sorted(names - covered):
+            print(
+                f"warning: mcps.{mcp_name} uses ${{secret:{orphan}}} but no agent "
+                "reaches that server; declare it or drop the server before validate",
+                file=sys.stderr,
+            )
 
     doc: dict[str, object] = {"version": "0.2", "name": found.name}
     if found.instructions is not None:
@@ -245,7 +256,9 @@ def _reach(
     if not tools:
         return all_mcps
     via_tools = {
-        t.split("__", 2)[1] for t in tools if t.startswith("mcp__") and t.count("__") >= 2
+        t.split("__", 2)[1]
+        for t in tools
+        if t.startswith("mcp__") and t.count("__") >= 2
     }
     via_skills = {m for s in skills for m in skill_mcps.get(s, ())}
     return via_tools | via_skills
@@ -257,14 +270,18 @@ def _server(name: str, raw: dict[str, object]) -> tuple[dict[str, object], set[s
     secrets: set[str] = set()
     kind = raw.get("type") or ("stdio" if "command" in raw else "http")
     if kind == "stdio":
-        server: dict[str, object] = {"type": "stdio", "command": str(raw.get("command", ""))}
+        server: dict[str, object] = {
+            "type": "stdio",
+            "command": str(raw.get("command", "")),
+        }
         args = raw.get("args")
         if isinstance(args, list) and args:
             server["args"] = [str(a) for a in args]
         env = raw.get("env")
         if isinstance(env, dict) and env:
             server["env"] = {
-                str(k): _secretise(name, str(k), str(v), secrets) for k, v in env.items()
+                str(k): _secretise(name, str(k), str(v), secrets)
+                for k, v in env.items()
             }
         return server, secrets
     if kind not in ("http", "sse"):
@@ -273,7 +290,8 @@ def _server(name: str, raw: dict[str, object]) -> tuple[dict[str, object], set[s
     headers = raw.get("headers")
     if isinstance(headers, dict) and headers:
         server["headers"] = {
-            str(k): _secretise(name, str(k), str(v), secrets) for k, v in headers.items()
+            str(k): _secretise(name, str(k), str(v), secrets)
+            for k, v in headers.items()
         }
     return server, secrets
 

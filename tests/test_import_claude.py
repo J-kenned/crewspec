@@ -22,7 +22,9 @@ def test_round_trip_from_emitted_plugin(tmp_path: Path, run_cli) -> None:  # typ
     installed = tmp_path / "T"
     assert run_cli("install", str(EXAMPLE), "--out", str(installed)).exit_code == 0
 
-    result = run_cli("init", "--from-claude", str(installed), "--out", str(tmp_path / "R"))
+    result = run_cli(
+        "init", "--from-claude", str(installed), "--out", str(tmp_path / "R")
+    )
     assert result.exit_code == 0, result.output
     assert run_cli("validate", str(tmp_path / "R")).exit_code == 0
 
@@ -66,7 +68,9 @@ def _hand_made(root: Path, *, mcp_file: str = ".mcp.json") -> None:
     )
     skill = root / ".claude" / "skills" / "tidy"
     skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("---\nname: tidy\ndescription: Tidy.\n---\n\nTidy.\n")
+    (skill / "SKILL.md").write_text(
+        "---\nname: tidy\ndescription: Tidy.\n---\n\nTidy.\n"
+    )
     (root / mcp_file).write_text(
         json.dumps(
             {
@@ -102,14 +106,15 @@ def test_hand_made_layout_never_copies_a_credential(tmp_path: Path, run_cli) -> 
     assert "PORT: '8080'" in text or "PORT: 8080" in text
     assert "${MODE:-fast}" in text
 
-    loaded = _load(out)
-    assert loaded.doc.version == "0.2"
-    helper = loaded.doc.agents["helper"]
-    assert helper.allowed_tools == ["Read", "mcp__api__*"]
-    assert helper.depends_on.skills == ["tidy"]
+    doc = yaml.safe_load(text)
+    assert doc["version"] == "0.2"
+    helper = doc["agents"]["helper"]
+    assert helper["allowed_tools"] == ["Read", "mcp__api__*"]
+    assert helper["depends_on"] == {"skills": ["tidy"]}
     # Reaches `api` only (via the tool glob), so only its secret is declared.
-    assert set(helper.secrets or {}) == {"API_KEY"}
-    assert (helper.secrets or {})["API_KEY"].ref == "vault://proj/API_KEY"
+    assert helper["secrets"] == {
+        "API_KEY": {"ref": "vault://proj/API_KEY", "blind": True}
+    }
     assert (out / "instructions.md").read_text() == "# House rules\n\nBe brief.\n"
     assert "custom: kept" in (out / "agents" / "helper.md").read_text()
 
