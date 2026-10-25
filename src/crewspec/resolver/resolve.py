@@ -32,6 +32,13 @@ def resolve(registry: NodeRegistry) -> ResolvedIR:
             tools=tuple(node.definition.allowed_tools),
             skills=tuple(skills[s] for s in node.definition.depends_on.skills),
             withheld=node.definition.runtime_blocks(),
+            triggers=tuple(node.definition.triggers or ()),
+            channels=tuple(node.definition.channels or ()),
+            sandbox=node.definition.sandbox,
+            secrets=dict(node.definition.secrets or {}),
+            limits=node.definition.limits,
+            approvals=node.definition.approvals,
+            extensions=dict(node.definition.extensions),
         )
         for name, node in registry.agents.items()
     ]

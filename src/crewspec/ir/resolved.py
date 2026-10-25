@@ -22,6 +22,14 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from crewspec.models.mcp import McpServer
+from crewspec.models.runtime import (
+    Approvals,
+    Channel,
+    Limits,
+    Sandbox,
+    Secret,
+    Trigger,
+)
 
 
 class ResolvedMcp(BaseModel):
@@ -57,7 +65,10 @@ class ResolvedAgent(BaseModel):
     each emitter to map onto its own syntax. ``skills`` are the agent's declared
     ``depends_on.skills`` in declared order; MCPs are global and live on the IR.
     ``withheld`` names the 0.2 runtime blocks (and ``x-*`` keys) the agent
-    sets; no current emitter renders them, so they are reported, not written.
+    sets. The blocks themselves ride alongside, typed by the crewfile models,
+    so an emitter with a home for one (Actions renders ``triggers``, Kiro
+    reads ``x-operative.model``) can translate it; every other emitter
+    reports it as withheld.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -67,6 +78,13 @@ class ResolvedAgent(BaseModel):
     tools: tuple[str, ...] = ()
     skills: tuple[ResolvedSkill, ...] = ()
     withheld: tuple[str, ...] = ()
+    triggers: tuple[Trigger, ...] = ()
+    channels: tuple[Channel, ...] = ()
+    sandbox: Sandbox | None = None
+    secrets: dict[str, Secret] = {}
+    limits: Limits | None = None
+    approvals: Approvals | None = None
+    extensions: dict[str, dict[str, object]] = {}
 
 
 class ResolvedIR(BaseModel):

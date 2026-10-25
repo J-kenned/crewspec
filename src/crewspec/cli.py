@@ -17,6 +17,7 @@ import click
 
 from crewspec import __version__
 from crewspec.emitters import EMITTERS, CodexEmitter, EmitError
+from crewspec.importers import ImportError_, import_claude
 from crewspec.installed import InstalledPack, list_installed
 from crewspec.parser import CrewfileError, resolve_crewfile
 from crewspec.pipeline import InstallSummary, build_ir, install
@@ -208,6 +209,39 @@ def list_cmd(out: Path, target: str | None, as_json: bool) -> None:
         click.echo(f"No crewspec pack installed for {target} under {out}")
     else:
         click.echo(f"No crewspec packs installed under {out}")
+
+
+@cli.command("init")
+@click.option(
+    "--from-claude",
+    "from_claude",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    required=True,
+    help="Directory holding a Claude Code layout (.claude/, .mcp.json, CLAUDE.md).",
+)
+@click.option("--name", default=None, help="Pack name. Default: the directory name.")
+@click.option(
+    "--out",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Directory to write the pack into. Default: ./<name>.",
+)
+def init_cmd(from_claude: Path, name: str | None, out: Path | None) -> None:
+    """Create a crewfile pack from an existing Claude Code layout.
+
+    Agents, skills, MCP servers, and CLAUDE.md instructions under
+    --from-claude become a 0.2 pack. Credentials in MCP config are replaced by
+    ``${secret:NAME}`` references with a generated ``secrets:`` block; no secret
+    value is ever copied. Review the result, then ``crewspec validate`` it.
+    """
+
+    try:
+        dest = out if out is not None else Path(name or from_claude.resolve().name)
+        crewfile = import_claude(from_claude, dest, name=name)
+    except (ImportError_, CrewfileError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Wrote {crewfile}")
+    click.echo(f"  next: crewspec validate {crewfile.parent}")
 
 
 def _echo_summary(summary: InstallSummary, *, dry_run: bool) -> None:

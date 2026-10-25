@@ -222,3 +222,14 @@ def test_install_withholds_0_2_blocks_without_crashing(
     )
     for block in ("tokens_per_run", "vault://", "approvals_inbox", "host_access"):
         assert block not in written
+
+
+def test_sandbox_mounts_parse_with_ro_default_and_reject_bad_mode() -> None:
+    doc = CrewDoc.model_validate(
+        _doc(limits=LIMITS, sandbox={"kind": "docker", "host_access": "host-disk",
+                                     "mounts": [{"path": "/srv/data"}, {"path": "/srv/out", "mode": "rw"}]})
+    )
+    mounts = doc.agents["a"].sandbox.mounts
+    assert [(m.path, m.mode) for m in mounts] == [("/srv/data", "ro"), ("/srv/out", "rw")]
+    with pytest.raises(ValidationError):
+        CrewDoc.model_validate(_doc(limits=LIMITS, sandbox={"kind": "docker", "mounts": [{"path": "/x", "mode": "rwx"}]}))

@@ -23,7 +23,9 @@ class PackState(BaseModel):
 
     ``mcps`` are the ``mcpServers`` keys crewspec owns in the host's config and
     ``instructions`` records whether a managed instructions block was written.
-    The next install or ``uninstall`` reads it to remove exactly those.
+    ``agents``, ``skills`` and ``workflows`` are the files a flat-layout target
+    (Kiro, Actions) wrote outside its pack directory. The next install or
+    ``uninstall`` reads it to remove exactly those.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -31,6 +33,9 @@ class PackState(BaseModel):
     name: str
     mcps: tuple[str, ...] = ()
     instructions: bool = False
+    agents: tuple[str, ...] = ()
+    skills: tuple[str, ...] = ()
+    workflows: tuple[str, ...] = ()
 
     @classmethod
     def read(cls, path: Path) -> PackState | None:
@@ -51,7 +56,10 @@ class PackState(BaseModel):
 
     def write(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.model_dump_json(indent=2) + "\n")
+        # The flat-layout lists are omitted when empty so the Claude and Codex
+        # state files keep the shape they had before those targets existed.
+        empty = {f for f in ("agents", "skills", "workflows") if not getattr(self, f)}
+        path.write_text(self.model_dump_json(indent=2, exclude=empty) + "\n")
 
 
 class Emitter(ABC):
@@ -68,6 +76,12 @@ class Emitter(ABC):
     plugins_dir: tuple[str, ...]
     #: Metadata directory inside a plugin that holds its manifest and state.
     meta_dir: str
+    #: How this target treats each 0.2 block: ``delivered`` (written in the
+    #: block's own shape), ``translated`` (written under the target's
+    #: vocabulary) or ``withheld`` (not written). Keys are the block names in
+    #: :data:`~crewspec.models.runtime.RUNTIME_BLOCKS` plus ``x-*``; a block
+    #: not listed is withheld. Mirrors Kiro Crew's disposition vocabulary.
+    dispositions: dict[str, str] = {}
 
     @abstractmethod
     def emit(self, ir: ResolvedIR, dest: Path) -> None:

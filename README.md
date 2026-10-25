@@ -198,7 +198,7 @@ YAML anchors. See `examples/night-shift/` for a real one.
 | ----- | -------- |
 | `triggers` | what wakes the agent: `provider` (`github`, `cron`, `webhook`, `channel`), `type`, `filter`, `cron` or `fire_at`, `prompt`, `claim`, `coalesce`, `deliver_only` |
 | `channels` | where it talks: `kind` (`slack`, `github`, `cli`, `push`), `binding`, `approvals_inbox` |
-| `sandbox` | `kind` (`none`, `docker`, `vm`), `policy`, `network` (`none`, `broker-only`, `allowlist` + `allow`), `host_access`, `disk_mb`, `leaves` |
+| `sandbox` | `kind` (`none`, `docker`, `vm`), `policy`, `network` (`none`, `broker-only`, `allowlist` + `allow`), `host_access`, `disk_mb`, `leaves`, `mounts` (`path`, `mode: ro|rw`; only with `host_access: host-disk`) |
 | `secrets` | name → `ref: vault://…`, `blind` (default `true`), `hosts`, `kind`. For `kind: web-login`, `hosts` is the list of origins the runtime's login tool may fill; fill is refused elsewhere. |
 | `limits` | `tokens_per_run` and `wall_clock_s` (both required), `tokens_per_day`, `max_prs_per_night`, `retries`, `deny` |
 | `approvals` | `policy`, `ask` (closed list: `send post pay sign delete merge promote`), `timeout_s`, `on_timeout`, `deferred`, `unattended` |
@@ -220,6 +220,24 @@ Three rules:
 Claude Code and Codex have no home for these blocks, so both emitters
 **withhold** them: nothing is written, nothing fails. `crewspec validate` lists
 the withheld blocks per agent (`withheld` in `--json`).
+
+## Import an existing Claude Code layout
+
+```bash
+crewspec init --from-claude ~/some-project --out ./some-project
+crewspec validate ./some-project
+```
+
+`init` reads `.claude/agents/*.md`, every `SKILL.md` under `.claude/skills/`,
+`mcpServers` from `.mcp.json` / `.claude.json`, and `CLAUDE.md`, and writes a
+0.2 pack. A crewspec-emitted plugin imports back to the same agents, skills,
+deps, and servers. Credentials in MCP config are replaced by `${secret:NAME}`
+with a generated `secrets:` block (`vault://<pack>/NAME`, blind) on every agent
+that can reach the server; a literal credential is dropped with a warning and
+never copied. Not recoverable from a Claude layout: the original `version`,
+crewfile comments, `depends_on` edges added beyond a skill's own frontmatter,
+and the 0.2 runtime blocks (Claude never received them), so `init` is the start
+of a pack, not a lossless export.
 
 ## Design docs
 

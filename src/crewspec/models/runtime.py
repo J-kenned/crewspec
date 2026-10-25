@@ -70,6 +70,13 @@ class Leaves(_Strict):
     readonly: list[str] = Field(default_factory=list)
 
 
+class Mount(_Strict):
+    """A host path exposed inside the sandbox; only honoured with `host_access: host-disk`."""
+
+    path: str
+    mode: Literal["ro", "rw"] = "ro"
+
+
 class Sandbox(_Strict):
     kind: Literal["none", "docker", "vm"]
     required: bool = False
@@ -79,6 +86,7 @@ class Sandbox(_Strict):
     host_access: Literal["none", "own-machine", "host-ui", "host-disk"] = "none"
     disk_mb: int | None = None
     leaves: Leaves = Field(default_factory=Leaves)
+    mounts: list[Mount] = Field(default_factory=list)
 
 
 class Secret(_Strict):
