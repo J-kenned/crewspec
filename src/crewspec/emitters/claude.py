@@ -33,11 +33,10 @@ from typing import Iterable
 import yaml
 
 from crewspec.emitters.base import Emitter, PackState
-from crewspec.emitters.errors import EmitError, MissingPersonaDescription
+from crewspec.emitters.errors import EmitError
 from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedSkill
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
-from crewspec.parser.frontmatter import split_frontmatter
 
 #: VCS/OS cruft never worth copying into a skill's emitted tree. ``.git`` in
 #: particular can be enormous and would embed a nested repo in the plugin.
@@ -64,7 +63,7 @@ class ClaudeEmitter(Emitter):
         # changing anything, so a failure leaves the previous install, and its
         # record of what it owns, exactly as it was.
         previous = self.previous_state(dest, ir.name)
-        agents = [(agent, self._read_persona(agent)) for agent in ir.agents]
+        agents = [(agent, self.read_persona(agent)) for agent in ir.agents]
         servers = {mcp.name: _server_dict(mcp.server) for mcp in ir.mcps}
         self._check_mcp_ownership(dest, ir.name, servers)
         stale = previous.mcps if previous else ()
@@ -163,14 +162,6 @@ class ClaudeEmitter(Emitter):
         path = plugin_root / "agents" / f"{agent.name}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
-
-    def _read_persona(self, agent: ResolvedAgent) -> tuple[str, str]:
-        text = _read_utf8(agent.persona_path)
-        meta, body = split_frontmatter(text)
-        description = meta.get("description") if meta else None
-        if not isinstance(description, str) or not description:
-            raise MissingPersonaDescription(agent.name, agent.persona_path)
-        return description, body
 
     def _copy_skills(
         self, plugin_root: Path, skills: tuple[ResolvedSkill, ...]

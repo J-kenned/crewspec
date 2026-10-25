@@ -49,6 +49,7 @@ def list_installed(out: Path, targets: Sequence[str] = ()) -> list[InstalledPack
         for root in emitter.installed(out):
             mcps: tuple[str, ...] = ()
             flat_agents: tuple[str, ...] = ()
+            flat_skills: tuple[str, ...] = ()
             warnings: tuple[str, ...] = ()
             try:
                 state = PackState.read(emitter.state_path(out, root.name))
@@ -57,6 +58,7 @@ def list_installed(out: Path, targets: Sequence[str] = ()) -> list[InstalledPack
             else:
                 mcps = tuple(sorted(state.mcps)) if state else ()
                 flat_agents = tuple(sorted(state.agents)) if state else ()
+                flat_skills = tuple(sorted(state.skills)) if state else ()
             packs.append(
                 InstalledPack(
                     name=root.name,
@@ -64,7 +66,8 @@ def list_installed(out: Path, targets: Sequence[str] = ()) -> list[InstalledPack
                     path=root.relative_to(out),
                     agents=flat_agents
                     or tuple(sorted(p.stem for p in (root / "agents").glob("*.md"))),
-                    skills=tuple(
+                    skills=flat_skills
+                    or tuple(
                         sorted(
                             p.parent.name for p in (root / "skills").glob("*/SKILL.md")
                         )

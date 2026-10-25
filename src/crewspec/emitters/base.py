@@ -8,9 +8,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from crewspec.emitters.errors import EmitError
-from crewspec.ir import ResolvedIR
+from crewspec.emitters.errors import EmitError, MissingPersonaDescription
+from crewspec.ir import ResolvedAgent, ResolvedIR
 from crewspec.models.crew import NAME_PATTERN
+from crewspec.parser.frontmatter import split_frontmatter
 
 #: Name of the state file each emitter writes inside its plugin metadata dir.
 STATE_FILE = "crewspec.json"
@@ -105,9 +106,34 @@ class Emitter(ABC):
     def installed(self, dest: Path) -> list[Path]:
         """Plugin directories under ``dest`` that carry a state file, sorted."""
         parent = dest.joinpath(*self.plugins_dir)
+        # The state file sits ``meta_dir`` below the plugin root; a ``meta_dir``
+        # of ``"."`` has zero parts, so walk up exactly that many directories.
+        depth = len(Path(self.meta_dir).parts) + 1
         return sorted(
-            p.parent.parent for p in parent.glob(f"*/{self.meta_dir}/{STATE_FILE}")
+            p.parents[depth - 1] for p in parent.glob(f"*/{self.meta_dir}/{STATE_FILE}")
         )
+
+    def read_persona(self, agent: ResolvedAgent) -> tuple[str, str]:
+        """``(description, body)`` of an agent's persona file.
+
+        Every target needs the frontmatter ``description`` (Claude to delegate,
+        Kiro for its roster, Actions and Codex for the skill header), so a
+        persona without one is an error for all of them.
+        """
+
+        try:
+            text = agent.persona_path.read_bytes().decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise EmitError(f"'{agent.persona_path}' is not valid UTF-8") from exc
+        except OSError as exc:
+            raise EmitError(
+                f"'{agent.persona_path}' could not be read: {exc.strerror}"
+            ) from exc
+        meta, body = split_frontmatter(text)
+        description = meta.get("description") if meta else None
+        if not isinstance(description, str) or not description:
+            raise MissingPersonaDescription(agent.name, agent.persona_path)
+        return description, body
 
     def read_state(self, dest: Path, pack: str) -> PackState:
         """The state for an installed ``pack``, raising when it is not installed.

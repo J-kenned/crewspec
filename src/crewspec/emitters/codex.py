@@ -33,11 +33,10 @@ from crewspec.emitters.claude import (
     _SKILL_COPY_IGNORE,
     _normalize_skill_md,
 )
-from crewspec.emitters.errors import EmitError, MissingPersonaDescription
+from crewspec.emitters.errors import EmitError
 from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
-from crewspec.parser.frontmatter import split_frontmatter
 
 
 class CodexEmitter(Emitter):
@@ -60,7 +59,7 @@ class CodexEmitter(Emitter):
         # directory that later installs refuse to replace.
         self.previous_state(dest, ir.name)
         _check_name_collisions(ir)
-        agents = [(agent, self._read_persona(agent)) for agent in ir.agents]
+        agents = [(agent, self.read_persona(agent)) for agent in ir.agents]
         servers = _servers(ir.mcps)
         marketplace = _merged_marketplace(marketplace_path, ir.name, self.plugins_dir)
 
@@ -151,14 +150,6 @@ class CodexEmitter(Emitter):
         path = plugin_root / "skills" / agent.name / "SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text + ("\n" if not text.endswith("\n") else ""))
-
-    def _read_persona(self, agent: ResolvedAgent) -> tuple[str, str]:
-        text = agent.persona_path.read_text()
-        meta, body = split_frontmatter(text)
-        description = meta.get("description") if meta else None
-        if not isinstance(description, str) or not description:
-            raise MissingPersonaDescription(agent.name, agent.persona_path)
-        return description, body
 
 
 def _check_name_collisions(ir: ResolvedIR) -> None:
