@@ -1,0 +1,11 @@
+{
+  "name": "night-shift",
+  "mcps": [
+    "github",
+    "slack"
+  ],
+  "instructions": false,
+  "workflows": [
+    "night-shift-night-shift.yml"
+  ]
+}

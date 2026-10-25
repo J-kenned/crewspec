@@ -1,5 +1,6 @@
 """Emitters render the crewspec IR into target-specific artifacts"""
 
+from crewspec.emitters.actions import ActionsEmitter
 from crewspec.emitters.base import Emitter
 from crewspec.emitters.claude import ClaudeEmitter
 from crewspec.emitters.codex import CodexEmitter
@@ -10,6 +11,7 @@ EMITTERS: dict[str, type[Emitter]] = {
     ClaudeEmitter.name: ClaudeEmitter,
     CodexEmitter.name: CodexEmitter,
     KiroEmitter.name: KiroEmitter,
+    ActionsEmitter.name: ActionsEmitter,
 }
 
 
@@ -25,6 +27,7 @@ def dispositions(ir_blocks: tuple[str, ...]) -> dict[str, dict[str, str]]:
 
 __all__ = [
     "EMITTERS",
+    "ActionsEmitter",
     "ClaudeEmitter",
     "CodexEmitter",
     "KiroEmitter",

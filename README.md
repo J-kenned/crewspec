@@ -143,7 +143,7 @@ declares.
 
 | Command                    | What it does |
 | -------------------------- | ------------ |
-| `crewspec install SOURCE`  | Parse, resolve, and write artifacts. `--target` is `claude` (default) or `codex`. `--out DIR` defaults to `.`. `--dry-run` stops before writing. |
+| `crewspec install SOURCE`  | Parse, resolve, and write artifacts. `--target` is `claude` (default), `codex`, `kiro` or `actions`. `--out DIR` defaults to `.` (`~/.kiro` for kiro, the repo root for actions). `--dry-run` stops before writing. |
 | `crewspec validate SOURCE` | Parse and resolve, then print the resolved plan: the pack name, each agent's tools and skills, every skill and MCP server, and any warnings. `--json` prints JSON instead. Writes nothing. |
 | `crewspec uninstall NAME`  | Remove the pack `NAME` installed under `--out DIR` for `--target` (default `claude`): its plugin directory, its `mcpServers` keys and `CLAUDE.md` block on Claude, its marketplace entry on Codex. Nothing else is touched. An unknown name is an error. |
 | `crewspec list`            | List the packs installed under `--out DIR` (default `.`): per pack, the target, name, plugin path, agents, skills, and MCP servers. `--target` limits it to `claude` or `codex`. `--json` prints JSON instead. Writes nothing. |
@@ -219,25 +219,32 @@ Three rules:
 
 Claude Code and Codex have no home for these blocks, so both emitters
 **withhold** them: nothing is written, nothing fails. `crewspec validate` lists
-the withheld blocks per agent (`withheld` in `--json`).
+the withheld blocks per agent (`withheld` in `--json`) and, per target, what
+becomes of each one — `delivered`, `translated` or `withheld` (`dispositions`
+in `--json`).
 
-## Import an existing Claude Code layout
+## Kiro and GitHub Actions targets
 
-```bash
-crewspec init --from-claude ~/some-project --out ./some-project
-crewspec validate ./some-project
-```
+`--target kiro` writes kiro-cli agent specs: one `agents/<agent>.json` per
+agent (persona inlined as `prompt`, `allowed_tools` translated to kiro-cli names
+such as `fs_read` / `execute_bash` / `@server/tool`, the reachable `mcpServers`
+inline with `includeMcpJson: false`, one `skill://` resource per skill, and
+`model` from `x-operative.model`), the skills copied under `skills/`, and an
+`app.json` manifest under `crewspec/<pack>/`. Point `--out` at `~/.kiro` and run
+`kiro-cli --agent <agent>`. kiro-cli rejects unknown keys, so the 0.2 blocks are
+withheld.
 
-`init` reads `.claude/agents/*.md`, every `SKILL.md` under `.claude/skills/`,
-`mcpServers` from `.mcp.json` / `.claude.json`, and `CLAUDE.md`, and writes a
-0.2 pack. A crewspec-emitted plugin imports back to the same agents, skills,
-deps, and servers. Credentials in MCP config are replaced by `${secret:NAME}`
-with a generated `secrets:` block (`vault://<pack>/NAME`, blind) on every agent
-that can reach the server; a literal credential is dropped with a warning and
-never copied. Not recoverable from a Claude layout: the original `version`,
-crewfile comments, `depends_on` edges added beyond a skill's own frontmatter,
-and the 0.2 runtime blocks (Claude never received them), so `init` is the start
-of a pack, not a lossless export.
+`--target actions` is the zero-infrastructure fallback for a label- or
+schedule-driven agent (night shift, a PR checker): one
+`.github/workflows/<pack>-<agent>.yml` per agent with a `github`, `cron` or
+`webhook` trigger, running `anthropics/claude-code-action` with the persona as
+the prompt. Triggers become `on:` events (a label filter becomes the job `if`),
+`allowed_tools` and `limits.deny` become `--allowedTools` / `--disallowedTools`,
+`limits.wall_clock_s` becomes `timeout-minutes`, and secrets are referenced by
+name as `${{ secrets.NAME }}` (a `GITHUB_*` name maps to the workflow's own
+`GITHUB_TOKEN`). MCP servers go to `.github/crewspec/<pack>/mcp.json`. Sandbox,
+approvals, channels and token limits have no home on a hosted runner and are
+withheld. Point `--out` at the repository root.
 
 ## Import an existing Claude Code layout
 
