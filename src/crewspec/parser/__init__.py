@@ -7,8 +7,8 @@ from crewspec.parser.errors import (
     MissingArtifactError,
     UnknownReferenceError,
 )
-from crewspec.parser.frontmatter import parse_skill_frontmatter
-from crewspec.parser.loader import load_crewfile, resolve_crewfile
+from crewspec.parser.frontmatter import parse_skill_frontmatter, split_frontmatter
+from crewspec.parser.loader import load_crewfile, reachable_mcps, resolve_crewfile
 from crewspec.parser.registry import (
     AgentNode,
     LoadedCrew,
@@ -28,5 +28,7 @@ __all__ = [
     "UnknownReferenceError",
     "load_crewfile",
     "parse_skill_frontmatter",
+    "reachable_mcps",
     "resolve_crewfile",
+    "split_frontmatter",
 ]

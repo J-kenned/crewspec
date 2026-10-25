@@ -98,3 +98,29 @@ def _mark_line(exc: yaml.MarkedYAMLError) -> int | None:
     if exc.problem_mark is None:
         return None
     return exc.problem_mark.line + 2
+
+
+def split_frontmatter(text: str) -> tuple[dict[str, object] | None, str]:
+    """Split leading ``---``-fenced YAML frontmatter from the markdown body.
+
+    Returns ``(None, text)`` when no well-formed frontmatter block is present;
+    the caller treats a missing block as a missing ``description``.
+    """
+
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None, text
+
+    for index in range(1, len(lines)):
+        if lines[index].strip() == "---":
+            block = "\n".join(lines[1:index])
+            body = "\n".join(lines[index + 1 :])
+            try:
+                meta = yaml.safe_load(block)
+            except yaml.YAMLError:
+                return None, text
+            if not isinstance(meta, dict):
+                return None, text
+            return meta, body
+
+    return None, text

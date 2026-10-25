@@ -32,12 +32,12 @@ from crewspec.emitters.base import Emitter, PackState
 from crewspec.emitters.claude import (
     _SKILL_COPY_IGNORE,
     _normalize_skill_md,
-    _split_frontmatter,
 )
 from crewspec.emitters.errors import EmitError, MissingPersonaDescription
 from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
+from crewspec.parser.frontmatter import split_frontmatter
 
 
 class CodexEmitter(Emitter):
@@ -154,7 +154,7 @@ class CodexEmitter(Emitter):
 
     def _read_persona(self, agent: ResolvedAgent) -> tuple[str, str]:
         text = agent.persona_path.read_text()
-        meta, body = _split_frontmatter(text)
+        meta, body = split_frontmatter(text)
         description = meta.get("description") if meta else None
         if not isinstance(description, str) or not description:
             raise MissingPersonaDescription(agent.name, agent.persona_path)

@@ -287,7 +287,7 @@ def _validate_secret_refs(doc: CrewDoc, registry: NodeRegistry, crewfile: Path) 
     0.1 documents keep the passthrough behaviour and never reach here.
     """
 
-    reach = {a: _reachable_mcps(n, registry) for a, n in registry.agents.items()}
+    reach = {a: reachable_mcps(n, registry) for a, n in registry.agents.items()}
     for mcp_name, server in doc.mcps.items():
         for secret in _secret_names(server):
             declared = {
@@ -307,7 +307,7 @@ def _validate_secret_refs(doc: CrewDoc, registry: NodeRegistry, crewfile: Path) 
                     )
 
 
-def _reachable_mcps(node: AgentNode, registry: NodeRegistry) -> set[str]:
+def reachable_mcps(node: AgentNode, registry: NodeRegistry) -> set[str]:
     if not node.definition.allowed_tools:
         return set(registry.mcps)  # inherit all: every server is in reach
     via_tools = {

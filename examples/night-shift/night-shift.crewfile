@@ -71,7 +71,7 @@ agents:
       on_timeout: deny                 # D5
       unattended: deny
     x-operative:
-      backend: claude_code             # D7d: emitter is the adapter
+      backend: claude                  # D7d: emitter is the adapter
       memory_policy: {durable_memory: true, candidate_memory: true}
       model: claude-opus-5-5
 

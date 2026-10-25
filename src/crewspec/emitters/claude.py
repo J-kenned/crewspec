@@ -37,6 +37,7 @@ from crewspec.emitters.errors import EmitError, MissingPersonaDescription
 from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedSkill
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
+from crewspec.parser.frontmatter import split_frontmatter
 
 #: VCS/OS cruft never worth copying into a skill's emitted tree. ``.git`` in
 #: particular can be enormous and would embed a nested repo in the plugin.
@@ -165,7 +166,7 @@ class ClaudeEmitter(Emitter):
 
     def _read_persona(self, agent: ResolvedAgent) -> tuple[str, str]:
         text = _read_utf8(agent.persona_path)
-        meta, body = _split_frontmatter(text)
+        meta, body = split_frontmatter(text)
         description = meta.get("description") if meta else None
         if not isinstance(description, str) or not description:
             raise MissingPersonaDescription(agent.name, agent.persona_path)
@@ -340,32 +341,6 @@ def _normalize_skill_md(skill_dir: Path) -> None:
         if child.name != "SKILL.md" and child.name.lower() == "skill.md":
             child.rename(canonical)
             return
-
-
-def _split_frontmatter(text: str) -> tuple[dict[str, object] | None, str]:
-    """Split leading ``---``-fenced YAML frontmatter from the markdown body.
-
-    Returns ``(None, text)`` when no well-formed frontmatter block is present;
-    the caller treats a missing block as a missing ``description``.
-    """
-
-    lines = text.split("\n")
-    if not lines or lines[0].strip() != "---":
-        return None, text
-
-    for index in range(1, len(lines)):
-        if lines[index].strip() == "---":
-            block = "\n".join(lines[1:index])
-            body = "\n".join(lines[index + 1 :])
-            try:
-                meta = yaml.safe_load(block)
-            except yaml.YAMLError:
-                return None, text
-            if not isinstance(meta, dict):
-                return None, text
-            return meta, body
-
-    return None, text
 
 
 def _server_dict(server: McpServer) -> dict[str, object]:
