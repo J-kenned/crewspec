@@ -168,7 +168,7 @@ def _secret_positions(root: Path) -> None:
                     },
                     "web": {
                         "type": "http",
-                        "url": "https://x.example.com/${REGION}/",
+                        "url": "https://x.example.com/${REGION}/?k=${API_KEY}",
                         "headers": {
                             "X-Api": f"Bearer {GHP}",
                             "X-Region": "${REGION}",
@@ -180,6 +180,7 @@ def _secret_positions(root: Path) -> None:
                         "env": {
                             "SESSION": "aB3" * 14,
                             "LOWER": "abcdefghijklmnopqrstuvwxyz0123456789abcdefgh",
+                            "NOTE": f"token={GHP} region=${{REGION}}",
                         },
                     },
                 }
@@ -209,21 +210,46 @@ def test_every_secret_bearing_position_is_scrubbed(
     assert headers["X-Api"] == "${secret:X_API}"  # bearer literal, whole value
     assert headers["X-Region"] == "${secret:REGION}"  # any header env ref
     assert headers["Accept"] == "application/json"  # plain literal survives
-    assert doc["mcps"]["web"]["url"] == "https://x.example.com/${REGION}/"
+    # A credential-named env ref is a secret in any position; others stay env.
+    assert (
+        doc["mcps"]["web"]["url"]
+        == "https://x.example.com/${REGION}/?k=${secret:API_KEY}"
+    )
     assert "mcpServers.web.X-Api held a literal credential" in err
 
     # 40+ chars: mixed case + digit is a credential, lowercase-only is not.
     assert doc["mcps"]["opaque"]["env"]["SESSION"] == "${secret:SESSION}"
     assert doc["mcps"]["opaque"]["env"]["LOWER"].startswith("abcdefghij")
+    # A literal credential mixed with a ref is replaced on its own.
+    assert doc["mcps"]["opaque"]["env"]["NOTE"] == "${secret:NOTE}${REGION}"
+    assert "mcpServers.opaque.NOTE held a literal credential" in err
 
     assert set(doc["agents"]["all"]["secrets"]) == {
         "GH_ARG3",
         "MODE_X",
         "X_API",
         "REGION",
+        "API_KEY",
         "SESSION",
+        "NOTE",
     }
     assert run_cli("validate", str(out)).exit_code == 0
+
+
+def test_duplicate_agent_keys_are_suffixed_not_dropped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    src = tmp_path / "proj"
+    (src / ".claude" / "agents").mkdir(parents=True)
+    for stem in ("a", "b"):
+        (src / ".claude" / "agents" / f"{stem}.md").write_text(
+            "---\nname: Same Name\ndescription: Twin.\n---\n\nHi.\n"
+        )
+    out = tmp_path / "pack"
+    import_claude(src, out, name="proj")
+    assert set(_doc(out, "proj")["agents"]) == {"same-name", "same-name-2"}
+    assert "already taken" in capsys.readouterr().err
+    assert (out / "agents" / "same-name-2.md").is_file()
 
 
 def test_agent_key_prefers_frontmatter_name_and_list_tools(tmp_path: Path) -> None:

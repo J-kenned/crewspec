@@ -23,8 +23,10 @@ Secret values never reach the crewfile. Every server position the loader
 treats as secret-bearing (``command``, ``args``, ``env`` values, ``url``,
 header values) is scanned. A pre-existing ``${secret:NAME}`` is kept and
 declared. A ``${VAR}`` env reference becomes ``${secret:VAR}`` under a
-credential key (``*TOKEN*``, ``*SECRET*``, ``*KEY*``, ...) or in any header,
-and stays an env reference elsewhere. A literal that looks like a credential
+credential key (``*TOKEN*``, ``*SECRET*``, ``*KEY*``, ...), in any header, or
+when ``VAR`` itself is credential-named (``${API_KEY}`` in a url or arg), and
+stays an env reference elsewhere. A credential-looking literal mixed into a
+value with references is replaced on its own. A literal that looks like a credential
 (a known token prefix, a 40+ character mixed-case-and-digit run, a bearer
 header, or any literal under a credential key) is replaced wholesale by
 ``${secret:<SLOT>}`` named after its key or position, with a warning, and the
@@ -172,7 +174,14 @@ def _discover(src: Path, name: str | None) -> _Found:
         for persona in sorted(agents_dir.glob("*.md")):
             if persona.name.startswith("."):
                 continue
-            found.agents.setdefault(_agent_key(persona), persona)
+            key = base = _agent_key(persona)
+            for n in range(2, 100):
+                if key not in found.agents:
+                    break
+                key = f"{base}-{n}"
+            if key != base:
+                _warn(f"agent {base!r} already taken; {persona.name} becomes {key!r}")
+            found.agents[key] = persona
 
     skills_root = dot / "skills"
     for skill_md in sorted(skills_root.glob("**/*")):
@@ -411,26 +420,35 @@ class _Scrubber:
                 if isinstance(fragment, SecretRef):
                     self.secrets.add(fragment.target)
                     out.append(f"${{{fragment.kind}:{fragment.target}}}")
-                elif isinstance(fragment, EnvRef) and env_secret:
+                elif isinstance(fragment, EnvRef) and (
+                    env_secret or _is_secret_key(fragment.name)
+                ):
                     self.secrets.add(fragment.name)
                     out.append(f"${{secret:{fragment.name}}}")
                 elif isinstance(fragment, EnvRef) and fragment.default is not None:
                     out.append(f"${{{fragment.name}:-{fragment.default}}}")
                 elif isinstance(fragment, EnvRef):
                     out.append(f"${{{fragment.name}}}")
+                elif _looks_secret(fragment):
+                    out.append(self._replace(slot, name, len(out)))
                 else:
                     out.append(fragment)
             return "".join(out)
 
         if value and (literal_secret or _looks_secret(value)):
-            secret_name = _upper(name)
-            self.secrets.add(secret_name)
-            _warn(
-                f"mcpServers.{self.mcp}.{slot} held a literal credential; replaced "
-                f"with ${{secret:{secret_name}}} (value not copied)"
-            )
-            return f"${{secret:{secret_name}}}"
+            return self._replace(slot, name)
         return value
+
+    def _replace(self, slot: str, name: str, position: int = 0) -> str:
+        """The ``${secret:NAME}`` that stands in for a literal credential."""
+
+        secret_name = _upper(name if position == 0 else f"{name}_{position}")
+        self.secrets.add(secret_name)
+        _warn(
+            f"mcpServers.{self.mcp}.{slot} held a literal credential; replaced "
+            f"with ${{secret:{secret_name}}} (value not copied)"
+        )
+        return f"${{secret:{secret_name}}}"
 
 
 def _upper(text: str) -> str:
