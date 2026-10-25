@@ -56,6 +56,8 @@ class ResolvedSkill(BaseModel):
     name: str
     path: Path
     skill_md: Path
+    #: MCP server names the skill's ``x-crewspec.mcps`` (∪ crewfile) declares.
+    mcps: tuple[str, ...] = ()
 
 
 class ResolvedAgent(BaseModel):
@@ -85,6 +87,9 @@ class ResolvedAgent(BaseModel):
     limits: Limits | None = None
     approvals: Approvals | None = None
     extensions: dict[str, dict[str, object]] = {}
+    #: Filled by ``crewspec validate``, not the resolver: per emitter target,
+    #: what becomes of each block in ``withheld`` (delivered/translated/withheld).
+    dispositions: dict[str, dict[str, str]] = {}
 
 
 class ResolvedIR(BaseModel):

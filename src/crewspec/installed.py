@@ -48,6 +48,7 @@ def list_installed(out: Path, targets: Sequence[str] = ()) -> list[InstalledPack
         emitter = EMITTERS[target]()
         for root in emitter.installed(out):
             mcps: tuple[str, ...] = ()
+            flat_agents: tuple[str, ...] = ()
             warnings: tuple[str, ...] = ()
             try:
                 state = PackState.read(emitter.state_path(out, root.name))
@@ -55,14 +56,14 @@ def list_installed(out: Path, targets: Sequence[str] = ()) -> list[InstalledPack
                 warnings = (f"{exc}; MCP servers not listed",)
             else:
                 mcps = tuple(sorted(state.mcps)) if state else ()
+                flat_agents = tuple(sorted(state.agents)) if state else ()
             packs.append(
                 InstalledPack(
                     name=root.name,
                     target=target,
                     path=root.relative_to(out),
-                    agents=tuple(
-                        sorted(p.stem for p in (root / "agents").glob("*.md"))
-                    ),
+                    agents=flat_agents
+                    or tuple(sorted(p.stem for p in (root / "agents").glob("*.md"))),
                     skills=tuple(
                         sorted(
                             p.parent.name for p in (root / "skills").glob("*/SKILL.md")

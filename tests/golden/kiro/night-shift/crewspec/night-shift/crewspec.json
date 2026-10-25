@@ -1,0 +1,14 @@
+{
+  "name": "night-shift",
+  "mcps": [
+    "github",
+    "slack"
+  ],
+  "instructions": false,
+  "agents": [
+    "night-shift"
+  ],
+  "skills": [
+    "issue-to-pr"
+  ]
+}

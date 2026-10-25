@@ -22,7 +22,12 @@ def resolve(registry: NodeRegistry) -> ResolvedIR:
     """
 
     skills = {
-        name: ResolvedSkill(name=name, path=node.root, skill_md=node.skill_md)
+        name: ResolvedSkill(
+            name=name,
+            path=node.root,
+            skill_md=node.skill_md,
+            mcps=tuple(node.deps.mcps),
+        )
         for name, node in registry.skills.items()
     }
     agents = [

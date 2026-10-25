@@ -11,35 +11,60 @@ rendering is a straight walk that never re-derives order.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Mapping, Sequence
 
 from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp
 from crewspec.models.mcp import StdioMcpServer
 
+#: Given an agent's withheld block names, the per-target disposition of each.
+Dispositions = Callable[[tuple[str, ...]], Mapping[str, Mapping[str, str]]]
 
-def render_json(ir: ResolvedIR) -> str:
+
+def render_json(ir: ResolvedIR, dispositions: Dispositions | None = None) -> str:
     """Serialize the resolved IR as indented JSON.
 
     Reuses pydantic's serialization directly so scripted callers consume the same
-    shape emitters do; ``Path`` fields render as strings.
+    shape emitters do; ``Path`` fields render as strings. With ``dispositions``
+    each agent's ``dispositions`` slot is filled:
+    ``{target: {block: delivered|translated|withheld}}`` for its 0.2 blocks, so
+    the output still round-trips into a :class:`ResolvedIR`.
     """
 
-    return ir.model_dump_json(indent=2)
+    if dispositions is None:
+        return ir.model_dump_json(indent=2)
+    data = json.loads(ir.model_dump_json())
+    for agent, row in zip(ir.agents, data["agents"], strict=True):
+        if agent.withheld:
+            row["dispositions"] = {
+                target: dict(ruling)
+                for target, ruling in dispositions(agent.withheld).items()
+            }
+    return json.dumps(data, indent=2)
 
 
-def render_tree(ir: ResolvedIR, warnings: Sequence[str] = ()) -> str:
+def render_tree(
+    ir: ResolvedIR,
+    warnings: Sequence[str] = (),
+    dispositions: Dispositions | None = None,
+) -> str:
     """Render the resolved plan as a human-readable tree.
 
     Lists the pack name, agents in crewfile order with their tools and skills,
     every declared skill, every MCP server, then any ``warnings`` captured
-    during resolution.
+    during resolution. With ``dispositions``, each agent that sets 0.2 blocks
+    also lists what every target does with them.
     """
 
     lines: list[str] = [_header(ir), "", "agents:"]
     if ir.agents:
         for agent in ir.agents:
             lines.extend(_agent_lines(agent))
+            if dispositions is not None and agent.withheld:
+                for target, ruling in dispositions(agent.withheld).items():
+                    summary = ", ".join(f"{b}: {d}" for b, d in ruling.items())
+                    lines.append(f"      {target:<8}{summary}")
     else:
         lines.append("  (none)")
 
