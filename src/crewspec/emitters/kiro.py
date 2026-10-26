@@ -140,7 +140,7 @@ class KiroEmitter(Emitter):
             _normalize_skill_md(target)
 
         for agent, (description, body) in personas:
-            spec = _agent_spec(agent, description, body, ir, dest / self.skills_dir)
+            spec = agent_spec(agent, description, body, ir, dest / self.skills_dir)
             path = dest / self.agents_dir / f"{agent.name}.json"
             path.write_text(json.dumps(spec, indent=2) + "\n")
 
@@ -153,18 +153,23 @@ class KiroEmitter(Emitter):
         shutil.rmtree(self.output_path(dest, pack))
 
 
-def _agent_spec(
+def agent_spec(
     agent: ResolvedAgent,
     description: str,
     body: str,
     ir: ResolvedIR,
-    skills_root: Path,
+    skills_root: Path | None = None,
 ) -> dict[str, object]:
+    """One agent's kiro-cli agent json. ``skills_root`` is where the emitter copied
+    the skills; ``None`` points ``resources`` at each skill's own ``SKILL.md`` in
+    the pack, for a runtime that runs the pack in place."""
+
     tools = _translate_tools(agent)
     reachable = reachable_mcps(agent, ir.mcps)
     servers = {m.name: _server_dict(m.server) for m in ir.mcps if m.name in reachable}
     resources = [
-        _skill_uri(skills_root / skill.name / "SKILL.md") for skill in agent.skills
+        skill_uri(skill.skill_md if skills_root is None else skills_root / skill.name / "SKILL.md")
+        for skill in agent.skills
     ]
     if ir.instructions is not None:
         resources.append(f"file://{ir.instructions.resolve().as_posix()}")
@@ -225,7 +230,7 @@ def _translate_tools(agent: ResolvedAgent) -> list[str]:
     return out
 
 
-def _skill_uri(skill_md: Path) -> str:
+def skill_uri(skill_md: Path) -> str:
     """kiro-cli's ``skill://`` form: ``~/`` under the home directory, else absolute."""
 
     try:
