@@ -29,6 +29,7 @@ Secret references keep the other emitters' rule: ``${secret:NAME}`` becomes
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import warnings
 from pathlib import Path
@@ -61,6 +62,32 @@ _TOOL_NAMES: dict[str, str] = {
 #: kiro-cli tools that only read. These are the only ones ``allowedTools``
 #: auto-approves; everything else keeps kiro-cli's own permission prompt.
 _READ_ONLY = frozenset({"fs_read", "glob", "grep", "web_fetch", "web_search"})
+
+#: kiro-cli model ids are dotted (``kiro-cli --list-models``, 2.34.0): the
+#: Claude families plus ``gpt-5.6-*`` and ``auto``. A crewfile names its model in
+#: pydantic-ai form (``anthropic:claude-sonnet-4-5-…``, ``bedrock:…``) or as a
+#: Claude Code alias (``sonnet``); the family word picks the kiro id and
+#: anything unrecognised falls back to ``auto`` so kiro-cli never rejects the spec.
+_KIRO_MODEL_RE = re.compile(
+    r"^(claude-(?:sonnet|haiku|opus)-\d+\.\d+|gpt-[\w.-]+|auto)$"
+)
+_KIRO_FAMILIES = (
+    ("haiku", "claude-haiku-5.5"),
+    ("opus", "claude-opus-5.5"),
+    ("sonnet", "claude-sonnet-5.5"),
+)
+
+
+def kiro_model_id(model: str) -> str:
+    """The kiro-cli model id for a crewfile ``x-operative.model`` value."""
+
+    name = model.strip().rpartition(":")[2].lower()
+    if _KIRO_MODEL_RE.match(name):
+        return name
+    for family, kiro_id in _KIRO_FAMILIES:
+        if family in name:
+            return kiro_id
+    return "auto"
 
 
 class KiroEmitter(Emitter):
@@ -138,7 +165,7 @@ def _agent_spec(
     }
     model = agent.extensions.get("x-operative", {}).get("model")
     if isinstance(model, str) and model:
-        spec["model"] = model
+        spec["model"] = kiro_model_id(model)
     return spec
 
 

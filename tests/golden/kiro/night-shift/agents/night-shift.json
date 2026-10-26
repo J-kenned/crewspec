@@ -37,5 +37,5 @@
   "resources": [
     "skill://<OUT>/skills/issue-to-pr/SKILL.md"
   ],
-  "model": "claude-opus-5-5"
+  "model": "claude-opus-5.5"
 }

@@ -89,7 +89,7 @@ def test_agent_spec_translates_tools_and_inlines_prompt(tmp_path: Path) -> None:
     assert spec["resources"] == [
         f"skill://{(dest / 'skills' / 'lint' / 'SKILL.md').as_posix()}"
     ]
-    assert spec["model"] == "claude-opus-5-5"
+    assert spec["model"] == "claude-opus-5.5"  # dotted kiro id
     assert (dest / "skills" / "lint" / "SKILL.md").is_file()
     state = json.loads((dest / "crewspec" / PACK / "crewspec.json").read_text())
     assert state["agents"] == ["rev"] and state["skills"] == ["lint"]
@@ -219,3 +219,24 @@ def test_pack_matches_golden(tmp_path: Path, run_cli, source: Path, name: str) -
         for p in sorted(golden.rglob("*"))
         if p.is_file()
     }
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        ("anthropic:claude-sonnet-4-5-20250929", "claude-sonnet-5.5"),
+        ("bedrock:global.anthropic.claude-sonnet-5-5", "claude-sonnet-5.5"),
+        ("sonnet", "claude-sonnet-5.5"),
+        ("claude-opus-5-5", "claude-opus-5.5"),
+        ("anthropic:claude-haiku-4-5", "claude-haiku-5.5"),
+        ("claude-haiku-5.5", "claude-haiku-5.5"),
+        ("gpt-5.6-codex", "gpt-5.6-codex"),
+        ("auto", "auto"),
+        ("mystery-model", "auto"),
+    ],
+)
+def test_kiro_model_id_is_dotted_or_auto(given: str, expected: str) -> None:
+    """kiro-cli rejects hyphenated ids; families map to the dotted ids it lists."""
+    from crewspec.emitters.kiro import kiro_model_id
+
+    assert kiro_model_id(given) == expected
