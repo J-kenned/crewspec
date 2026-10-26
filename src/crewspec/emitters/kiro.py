@@ -168,7 +168,11 @@ def agent_spec(
     reachable = reachable_mcps(agent, ir.mcps)
     servers = {m.name: _server_dict(m.server) for m in ir.mcps if m.name in reachable}
     resources = [
-        skill_uri(skill.skill_md if skills_root is None else skills_root / skill.name / "SKILL.md")
+        skill_uri(
+            skill.skill_md
+            if skills_root is None
+            else skills_root / skill.name / "SKILL.md"
+        )
         for skill in agent.skills
     ]
     if ir.instructions is not None:
