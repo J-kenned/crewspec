@@ -237,6 +237,31 @@ def test_pack_matches_golden(tmp_path: Path, run_cli, source: Path, name: str) -
 )
 def test_kiro_model_id_is_dotted_or_auto(given: str, expected: str) -> None:
     """kiro-cli rejects hyphenated ids; families map to the dotted ids it lists."""
+    import warnings as _w
+
     from crewspec.emitters.kiro import kiro_model_id
 
-    assert kiro_model_id(given) == expected
+    with _w.catch_warnings():
+        _w.simplefilter("ignore")
+        assert kiro_model_id(given) == expected
+
+
+@pytest.mark.parametrize(
+    ("given", "match"),
+    [
+        ("anthropic:claude-sonnet-4-5-20250929", "generation bumped"),
+        ("mystery-model", "using auto"),
+    ],
+)
+def test_kiro_model_id_warns_when_it_changes_the_ask(given: str, match: str) -> None:
+    from crewspec.emitters.kiro import kiro_model_id
+
+    with pytest.warns(UserWarning, match=match):
+        kiro_model_id(given)
+
+
+def test_web_tools_are_never_auto_approved() -> None:
+    """A URL query is an egress channel; web_fetch/web_search stay behind the gate."""
+    from crewspec.emitters.kiro import _READ_ONLY
+
+    assert _READ_ONLY == frozenset({"fs_read", "glob", "grep"})

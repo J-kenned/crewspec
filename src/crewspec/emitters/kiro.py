@@ -59,9 +59,11 @@ _TOOL_NAMES: dict[str, str] = {
     "WebSearch": "web_search",
 }
 
-#: kiro-cli tools that only read. These are the only ones ``allowedTools``
-#: auto-approves; everything else keeps kiro-cli's own permission prompt.
-_READ_ONLY = frozenset({"fs_read", "glob", "grep", "web_fetch", "web_search"})
+#: kiro-cli tools that only read local state. These are the only ones
+#: ``allowedTools`` auto-approves; everything else keeps kiro-cli's own
+#: permission prompt. ``web_fetch``/``web_search`` are excluded: a URL query is
+#: an egress channel, so they stay behind the gate.
+_READ_ONLY = frozenset({"fs_read", "glob", "grep"})
 
 #: kiro-cli model ids are dotted (``kiro-cli --list-models``, 2.34.0): the
 #: Claude families plus ``gpt-5.6-*`` and ``auto``. A crewfile names its model in
@@ -79,14 +81,27 @@ _KIRO_FAMILIES = (
 
 
 def kiro_model_id(model: str) -> str:
-    """The kiro-cli model id for a crewfile ``x-operative.model`` value."""
+    """The kiro-cli model id for a crewfile ``x-operative.model`` value. Warns
+    when the mapping changes what was asked for: a generation bump (the crewfile
+    said 4.5, kiro offers 5.5) or a fallback to ``auto``."""
 
     name = model.strip().rpartition(":")[2].lower()
     if _KIRO_MODEL_RE.match(name):
         return name
     for family, kiro_id in _KIRO_FAMILIES:
         if family in name:
+            asked = re.search(r"(\d+)[-.](\d+)", name)
+            offered = kiro_id.rsplit("-", 1)[1]
+            if asked and f"{asked.group(1)}.{asked.group(2)}" != offered:
+                warnings.warn(
+                    f"kiro: model {model!r} mapped to {kiro_id!r} (generation bumped)",
+                    stacklevel=3,
+                )
             return kiro_id
+    if name != "auto":
+        warnings.warn(
+            f"kiro: model {model!r} has no kiro-cli id; using auto", stacklevel=3
+        )
     return "auto"
 
 
