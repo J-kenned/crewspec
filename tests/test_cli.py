@@ -7,6 +7,7 @@ codes. Artifacts are written under ``tmp_path`` so the fixture stays read-only.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from crewspec.cli import cli
 from crewspec.ir import ResolvedIR
 
 FIXTURE = Path(__file__).parent / "fixtures" / "happy"
+SCOPED = Path(__file__).parent / "fixtures" / "scoped"
 PLUGIN = (".claude", "skills", "team")
 CODEX_PLUGIN = ("plugins", "team")
 
@@ -249,6 +251,37 @@ def test_validate_prints_resolved_plan() -> None:
     assert "skills:   lint" in result.output
     assert "• format" in result.output
     assert "mcp servers: 1" in result.output
+
+
+def test_project_scoped_mcp_is_counted_but_never_installed(tmp_path: Path) -> None:
+    # A skill may depend on a project-scoped server; validate counts and labels
+    # it; install and uninstall leave the user's own key of that name alone.
+    result = _run("validate", str(SCOPED))
+    assert result.exit_code == 0, result.output
+    assert "mcp servers: 2 (1 user, 1 project)" in result.output
+    assert "[project]" in result.output
+
+    theirs = {"type": "stdio", "command": "mine"}
+    (tmp_path / ".claude.json").write_text(
+        json.dumps({"mcpServers": {"local": theirs}})
+    )
+    result = _run("install", str(SCOPED), "--out", str(tmp_path))
+    assert result.exit_code == 0, result.output
+
+    plugin = tmp_path / ".claude" / "skills" / "scoped"
+    assert json.loads((plugin / ".claude-plugin" / "crewspec.json").read_text())[
+        "mcps"
+    ] == ["shared"]
+    assert json.loads((tmp_path / ".claude.json").read_text())["mcpServers"] == {
+        "local": theirs,
+        "shared": {"type": "stdio", "command": "shared-mcp"},
+    }
+
+    result = _run("uninstall", "scoped", "--out", str(tmp_path))
+    assert result.exit_code == 0, result.output
+    assert json.loads((tmp_path / ".claude.json").read_text()) == {
+        "mcpServers": {"local": theirs}
+    }
 
 
 def test_validate_writes_no_files() -> None:

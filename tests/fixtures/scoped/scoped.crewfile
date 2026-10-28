@@ -1,0 +1,22 @@
+version: "0.1"
+name: scoped
+
+agents:
+  dev:
+    persona: agents/dev.md
+    allowed_tools: [Read, "mcp__local__*"]
+    depends_on:
+      skills: [uses-local]
+
+skills:
+  uses-local:
+    path: skills/uses-local
+
+mcps:
+  shared:
+    type: stdio
+    command: shared-mcp
+  local:
+    type: stdio
+    scope: project
+    command: local-mcp

@@ -41,7 +41,7 @@ real install):
 | Location | What crewspec writes | Ownership |
 | -------- | -------------------- | --------- |
 | `.claude/skills/<name>/` | The plugin: `.claude-plugin/plugin.json`, `agents/`, `skills/`, and a `.claude-plugin/crewspec.json` state file. | crewspec owns the directory and rewrites it on every install. |
-| `.claude.json` | One `mcpServers` entry per declared MCP. | Only keys crewspec wrote are changed or removed; every other key and value is kept. Created as `{"mcpServers": {...}}` if absent. |
+| `.claude.json` | One `mcpServers` entry per declared MCP with `scope: user` (the default). | Only keys crewspec wrote are changed or removed; every other key and value is kept. Created as `{"mcpServers": {...}}` if absent. |
 | `.claude/CLAUDE.md` | The `instructions` file, between `<!-- crewspec:<name>:begin -->` and `<!-- crewspec:<name>:end -->` markers. | Only the block changes. It is replaced in place, appended after a blank line, or removed when `instructions` goes away. |
 
 Installing twice yields byte-identical files. The state file records which MCP
@@ -121,7 +121,12 @@ are global to the pack: each server is installed once, and an agent reaches its
 tools only through its own `allowed_tools` (`mcp__github__*` above). Nothing is
 granted implicitly, and agents do not list MCPs under `depends_on`; a crewfile
 that still has `agents.<x>.depends_on.mcps` fails with a message saying so.
-Dependency edges are reference checks: an unknown name is an error, but they do
+Each server takes an optional `scope`, `user` (default) or `project`: `user` is
+emitted into the user-scope Claude config at install; `project` is declared for
+dependency checking and for the pack's own per-project tooling, and the Claude
+target never writes it to `.claude.json`. Kiro's per-agent specs under `~/.kiro`
+carry every server an agent can reach, project scope included, and are removed
+on uninstall. Dependency edges are reference checks: an unknown name is an error, but they do
 not select what is emitted, and a cycle is not an error. Every path the crewfile
 names (personas, skill directories, `instructions`) must stay inside the pack:
 no absolute paths, no `..`, and no symlinks that lead outside it.

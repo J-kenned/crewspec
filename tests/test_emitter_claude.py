@@ -453,6 +453,39 @@ def test_mcp_key_owned_by_another_pack_is_an_error(tmp_path: Path) -> None:
     assert list(_claude_json(dest)["mcpServers"]) == ["other"]  # type: ignore[arg-type]
 
 
+def test_project_scoped_mcp_is_never_written_to_user_scope(tmp_path: Path) -> None:
+    # A project-scoped server is declared, not installed: it stays out of
+    # .claude.json and the state file, and an unowned key of the same name
+    # survives both install and uninstall.
+    dest = tmp_path / "out"
+    dest.mkdir()
+    theirs = {"type": "stdio", "command": "mine"}
+    (dest / ".claude.json").write_text(json.dumps({"mcpServers": {"local": theirs}}))
+    ir = _ir(
+        mcps=(
+            _mcp("shared", StdioMcpServer(command="shared")),
+            _mcp("local", StdioMcpServer(command="local", scope="project")),
+            _mcp(
+                "remote",
+                HttpMcpServer(url="https://example.test/mcp", scope="project"),
+            ),
+        ),
+    )
+
+    ClaudeEmitter().emit(ir, dest)
+
+    assert _claude_json(dest)["mcpServers"] == {
+        "local": theirs,
+        "shared": {"type": "stdio", "command": "shared"},
+    }
+    state_path = dest.joinpath(*PLUGIN) / ".claude-plugin" / "crewspec.json"
+    assert json.loads(state_path.read_text())["mcps"] == ["shared"]
+
+    ClaudeEmitter().uninstall(PACK, dest)
+
+    assert _claude_json(dest) == {"mcpServers": {"local": theirs}}
+
+
 def test_file_secret_is_an_error(tmp_path: Path) -> None:
     ir = _ir(
         mcps=(

@@ -9,9 +9,11 @@ The Claude target writes to three places under ``<dest>``:
   it freely. ``.claude-plugin/crewspec.json`` records what the pack wrote
   outside this directory.
 * ``.claude.json`` — the user-scope Claude Code config. Each declared MCP
-  server is merged in under ``mcpServers`` (plugin-shipped MCPs are not
-  user-scoped, so the plugin cannot carry them). Only keys crewspec wrote are
-  ever changed or removed.
+  server with ``scope: user`` (the default) is merged in under ``mcpServers``
+  (plugin-shipped MCPs are not user-scoped, so the plugin cannot carry them).
+  A ``scope: project`` server is never written here: it is declared for
+  dependency checking and the pack's own per-project tooling. Only keys
+  crewspec wrote are ever changed or removed.
 * ``.claude/CLAUDE.md`` — the optional ``instructions`` file lands here as a
   block between ``<!-- crewspec:<name>:begin -->`` and ``<!-- crewspec:<name>:end
   -->`` markers. Nothing outside the block is touched.
@@ -64,7 +66,11 @@ class ClaudeEmitter(Emitter):
         # record of what it owns, exactly as it was.
         previous = self.previous_state(dest, ir.name)
         agents = [(agent, self.read_persona(agent)) for agent in ir.agents]
-        servers = {mcp.name: _server_dict(mcp.server) for mcp in ir.mcps}
+        servers = {
+            mcp.name: _server_dict(mcp.server)
+            for mcp in ir.mcps
+            if mcp.server.scope == "user"
+        }
         self._check_mcp_ownership(dest, ir.name, servers)
         stale = previous.mcps if previous else ()
         config = _merged_config(config_path, servers, stale)

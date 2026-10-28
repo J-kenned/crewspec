@@ -9,6 +9,12 @@ crewspec understands today:
 String fields may carry ``${...}`` references; their *syntax* is validated at
 parse time, but substitution is lazy, call :meth:`resolve` with an environment
 mapping to get an interpolated copy.
+
+Every server carries a ``scope``: ``user`` (default) is merged into the Claude
+target's user-scope config at install; ``project`` is declared for dependency
+checking and the pack's own per-project tooling and the Claude target never
+writes it there. Kiro's per-agent specs under ``~/.kiro`` carry every server an
+agent can reach, project scope included, and are removed on uninstall.
 """
 
 from __future__ import annotations
@@ -44,6 +50,7 @@ class StdioMcpServer(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: Literal["stdio"] = "stdio"
+    scope: Literal["user", "project"] = "user"
     command: str
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
@@ -86,6 +93,7 @@ class _RemoteMcpServer(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    scope: Literal["user", "project"] = "user"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
 

@@ -71,6 +71,25 @@ def test_render_tree_summarizes_remote_mcp() -> None:
     assert "api — http (https://example.test/mcp)" in render_tree(ir)
 
 
+def test_render_tree_labels_project_scoped_mcps() -> None:
+    ir = ResolvedIR(
+        name="scoped",
+        mcps=(
+            ResolvedMcp(name="shared", server=StdioMcpServer(command="shared")),
+            ResolvedMcp(
+                name="local", server=StdioMcpServer(command="local", scope="project")
+            ),
+        ),
+    )
+    out = render_tree(ir)
+
+    assert "mcp servers: 2 (1 user, 1 project)" in out
+    assert "(local) [project]" in out
+    assert out.count("[project]") == 1
+    # No breakdown when every server is user scope.
+    assert "mcp servers: 1\n" in render_tree(_ir())
+
+
 def test_render_tree_handles_empty_ir() -> None:
     out = render_tree(ResolvedIR(name="empty"))
     assert "crewspec plan: empty — 0 agents, 0 skills, 0 mcp servers" in out

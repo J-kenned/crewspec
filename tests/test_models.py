@@ -72,6 +72,15 @@ def test_name_must_be_lowercase_digits_and_hyphens(name: str) -> None:
     assert exc.value.errors()[0]["loc"] == ("name",)
 
 
+def test_mcp_scope_defaults_to_user_and_rejects_other_values() -> None:
+    assert StdioMcpServer(command="x").scope == "user"
+    assert HttpMcpServer(url="https://e.test/mcp").scope == "user"
+    assert StdioMcpServer(command="x", scope="project").scope == "project"
+    assert SseMcpServer(url="https://e.test/sse", scope="project").scope == "project"
+    with pytest.raises(ValidationError):
+        StdioMcpServer(command="x", scope="global")
+
+
 def test_agent_depends_on_rejects_mcps() -> None:
     with pytest.raises(ValidationError) as exc:
         AgentDef.model_validate({"persona": "p.md", "depends_on": {"mcps": ["g"]}})

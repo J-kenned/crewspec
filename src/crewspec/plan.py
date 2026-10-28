@@ -74,7 +74,11 @@ def render_tree(
     else:
         lines.append("  (none)")
 
-    lines += ["", f"mcp servers: {len(ir.mcps)}"]
+    project = sum(mcp.server.scope == "project" for mcp in ir.mcps)
+    count = f"mcp servers: {len(ir.mcps)}"
+    if project:
+        count += f" ({len(ir.mcps) - project} user, {project} project)"
+    lines += ["", count]
     if ir.mcps:
         lines += [f"  • {mcp.name} — {_mcp_summary(mcp)}" for mcp in ir.mcps]
     else:
@@ -117,12 +121,14 @@ def _agent_lines(agent: ResolvedAgent) -> list[str]:
 
 
 def _mcp_summary(mcp: ResolvedMcp) -> str:
-    """A one-line transport summary: ``stdio (cmd args)`` or ``http (url)``."""
+    """``stdio (cmd args)`` or ``http (url)``, tagged when not user scope."""
 
     server = mcp.server
     if isinstance(server, StdioMcpServer):
-        return f"stdio ({' '.join([server.command, *server.args])})"
-    return f"{server.type} ({server.url})"
+        summary = f"stdio ({' '.join([server.command, *server.args])})"
+    else:
+        summary = f"{server.type} ({server.url})"
+    return summary if server.scope == "user" else f"{summary} [{server.scope}]"
 
 
 def _display_path(path: Path) -> str:
