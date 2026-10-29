@@ -26,6 +26,13 @@ skills:
   test-analysis:
     path: skills/test-analysis
 
+# Mods are Claude Code plugin directories with a hooks module
+# (`.claude-plugin/plugin.json` plus `hooks/hooks.json`). On the Claude target
+# each lands beside the pack's own plugin at `.claude/skills/<mod>/`.
+mods:
+  demo:
+    path: mods/demo
+
 # MCP servers are global: each one is merged into the user-scope config
 # (~/.claude.json on Claude). The token is kept out of the spec via a secret
 # reference; the launcher injects GITHUB_TOKEN at runtime.

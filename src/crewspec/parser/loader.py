@@ -96,6 +96,7 @@ def load_crewfile(path: str | Path) -> LoadedCrew:
         agents=_load_agents(doc, root, crewfile),
         skills=_load_skills(doc, root, crewfile),
         mcps=dict(doc.mcps),
+        mods=_load_mods(doc, root, crewfile),
     )
     _validate_references(registry, crewfile)
     if doc.version == "0.2":
@@ -241,6 +242,26 @@ def _load_skills(doc: CrewDoc, root: Path, crewfile: Path) -> dict[str, SkillNod
             deps=_merge_skill_deps(skill, frontmatter),
         )
     return skills
+
+
+def _load_mods(doc: CrewDoc, root: Path, crewfile: Path) -> dict[str, Path]:
+    """Resolve each mod to its directory, checking only the two files that make
+    it a Claude Code plugin with hooks; its contents are not parsed."""
+
+    mods: dict[str, Path] = {}
+    for name, mod in doc.mods.items():
+        mod_dir = _pack_path(root, mod.path, crewfile, f"mod '{name}' path")
+        if not mod_dir.is_dir():
+            raise MissingArtifactError(
+                f"mod '{name}' directory '{mod.path}' does not exist", path=crewfile
+            )
+        for required in (".claude-plugin/plugin.json", "hooks/hooks.json"):
+            if not (mod_dir / required).is_file():
+                raise MissingArtifactError(
+                    f"mod '{name}' is missing '{mod.path}/{required}'", path=crewfile
+                )
+        mods[name] = mod_dir
+    return mods
 
 
 def _merge_skill_deps(skill: SkillDef, frontmatter: XCrewspecFrontmatter) -> SkillDeps:

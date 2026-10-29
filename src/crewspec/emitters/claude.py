@@ -8,6 +8,8 @@ The Claude target writes to three places under ``<dest>``:
   because crewspec owns the whole directory, re-emission wipes and regenerates
   it freely. ``.claude-plugin/crewspec.json`` records what the pack wrote
   outside this directory.
+* ``.claude/skills/<mod>/`` — each declared mod, copied whole as a sibling
+  plugin directory; Claude Code loads it the same way it loads the pack.
 * ``.claude.json`` — the user-scope Claude Code config. Each declared MCP
   server with ``scope: user`` (the default) is merged in under ``mcpServers``
   (plugin-shipped MCPs are not user-scoped, so the plugin cannot carry them).
@@ -36,13 +38,23 @@ import yaml
 
 from crewspec.emitters.base import Emitter, PackState
 from crewspec.emitters.errors import EmitError
-from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedSkill
+from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMod, ResolvedSkill
 from crewspec.models.interpolate import EnvRef, parse_refs
 from crewspec.models.mcp import McpServer, StdioMcpServer
 
 #: VCS/OS cruft never worth copying into a skill's emitted tree. ``.git`` in
 #: particular can be enormous and would embed a nested repo in the plugin.
 _SKILL_COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".DS_Store")
+
+
+def _mod_copy_ignore(directory: str, names: list[str]) -> set[str]:
+    """``_SKILL_COPY_IGNORE`` plus the engine-generated ``.claude-plugin/types/``."""
+
+    ignored = set(_SKILL_COPY_IGNORE(directory, names))
+    if Path(directory).name == ".claude-plugin":
+        ignored.add("types")
+    return ignored
+
 
 #: User-scope Claude Code config and global instructions, relative to ``dest``.
 _USER_CONFIG = ".claude.json"
@@ -65,6 +77,7 @@ class ClaudeEmitter(Emitter):
         # changing anything, so a failure leaves the previous install, and its
         # record of what it owns, exactly as it was.
         previous = self.previous_state(dest, ir.name)
+        self._check_mod_dirs(dest, ir, previous)
         agents = [(agent, self.read_persona(agent)) for agent in ir.agents]
         servers = {
             mcp.name: _server_dict(mcp.server)
@@ -87,6 +100,7 @@ class ClaudeEmitter(Emitter):
             name=ir.name,
             mcps=tuple(servers),
             instructions=ir.instructions is not None,
+            mods=tuple(mod.name for mod in ir.mods),
         ).write(self.state_path(dest, ir.name))
         if config is not None:
             _write_atomic(config_path, config)
@@ -97,6 +111,7 @@ class ClaudeEmitter(Emitter):
         for agent, (description, body) in agents:
             self._write_agent(plugin_root, agent, description, body)
         self._copy_skills(plugin_root, ir.skills)
+        self._copy_mods(dest, ir.mods, previous.mods if previous else ())
 
     def uninstall(self, pack: str, dest: Path) -> None:
         state = self.read_state(dest, pack)
@@ -109,6 +124,8 @@ class ClaudeEmitter(Emitter):
             _write_atomic(config_path, config)
         if instructions is not None:
             _write_atomic(instructions_path, instructions)
+        for mod in state.mods:
+            shutil.rmtree(self.output_path(dest, mod), ignore_errors=True)
         shutil.rmtree(self.output_path(dest, pack))
 
     def _check_mcp_ownership(
@@ -135,6 +152,24 @@ class ClaudeEmitter(Emitter):
                 raise EmitError(
                     f"MCP server(s) {', '.join(taken)} already installed by pack "
                     f"'{root.name}'; pack '{pack}' cannot install them too"
+                )
+
+    def _check_mod_dirs(
+        self, dest: Path, ir: ResolvedIR, previous: PackState | None
+    ) -> None:
+        """Refuse a mod whose target directory exists but is not this pack's.
+
+        ``.claude/skills/<mod>/`` is wiped on every install, so it must be one
+        this pack wrote last time, never a user's skill or another pack's plugin.
+        """
+
+        owned = previous.mods if previous else ()
+        for mod in ir.mods:
+            target = self.output_path(dest, mod.name)
+            if target.exists() and mod.name not in owned:
+                raise EmitError(
+                    f"'{target}' exists but was not written by pack '{ir.name}'; "
+                    "move or delete it first"
                 )
 
     def _write_manifest(self, plugin_root: Path, name: str) -> None:
@@ -180,6 +215,23 @@ class ClaudeEmitter(Emitter):
             # plugin_root was just wiped, so dest_dir cannot pre-exist.
             shutil.copytree(skill.path, dest_dir, ignore=_SKILL_COPY_IGNORE)
             _normalize_skill_md(dest_dir)
+
+    def _copy_mods(
+        self, dest: Path, mods: tuple[ResolvedMod, ...], previous: tuple[str, ...]
+    ) -> None:
+        """Copy each mod to ``<dest>/.claude/skills/<mod>/`` beside the plugin.
+
+        A mod the previous install wrote and this one no longer declares is
+        removed; one it still declares is replaced.
+        """
+
+        for name in set(previous) - {mod.name for mod in mods}:
+            shutil.rmtree(self.output_path(dest, name), ignore_errors=True)
+        for mod in mods:
+            target = self.output_path(dest, mod.name)
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(mod.path, target, ignore=_mod_copy_ignore)
 
 
 def _read_utf8(path: Path) -> str:

@@ -41,6 +41,7 @@ real install):
 | Location | What crewspec writes | Ownership |
 | -------- | -------------------- | --------- |
 | `.claude/skills/<name>/` | The plugin: `.claude-plugin/plugin.json`, `agents/`, `skills/`, and a `.claude-plugin/crewspec.json` state file. | crewspec owns the directory and rewrites it on every install. |
+| `.claude/skills/<mod>/` | Each declared mod, copied whole (minus `.claude-plugin/types/`) as a sibling plugin directory. | crewspec owns it: recorded in the state file, replaced on install, removed on `uninstall`. `install` refuses a directory it did not write. |
 | `.claude.json` | One `mcpServers` entry per declared MCP with `scope: user` (the default). | Only keys crewspec wrote are changed or removed; every other key and value is kept. Created as `{"mcpServers": {...}}` if absent. |
 | `.claude/CLAUDE.md` | The `instructions` file, between `<!-- crewspec:<name>:begin -->` and `<!-- crewspec:<name>:end -->` markers. | Only the block changes. It is replaced in place, appended after a blank line, or removed when `instructions` goes away. |
 
@@ -144,12 +145,24 @@ x-crewspec:
 The crewfile may add dependencies to a skill but cannot remove ones the skill
 declares.
 
+A pack may also ship **mods**: Claude Code plugin directories with a hooks module
+(`.claude-plugin/plugin.json` plus `hooks/hooks.json` naming its `hooks/*.tsx`).
+`mods:` lists them by key with a path inside the pack, like `skills:`. The
+loader checks that those two files exist and reads nothing else. Only the
+Claude target emits them; every other target ignores them.
+
+```yaml
+mods:
+  dashboard:
+    path: mods/dashboard
+```
+
 ## CLI
 
 | Command                    | What it does |
 | -------------------------- | ------------ |
 | `crewspec install SOURCE`  | Parse, resolve, and write artifacts. `--target` is `claude` (default), `codex`, `kiro` or `actions`. `--out DIR` defaults to `.` (`~/.kiro` for kiro, the repo root for actions). `--dry-run` stops before writing. |
-| `crewspec validate SOURCE` | Parse and resolve, then print the resolved plan: the pack name, each agent's tools and skills, every skill and MCP server, and any warnings. `--json` prints JSON instead. Writes nothing. |
+| `crewspec validate SOURCE` | Parse and resolve, then print the resolved plan: the pack name, each agent's tools and skills, every skill, mod and MCP server, and any warnings. `--json` prints JSON instead. Writes nothing. |
 | `crewspec uninstall NAME`  | Remove the pack `NAME` installed under `--out DIR` for `--target` (default `claude`): its plugin directory, its `mcpServers` keys and `CLAUDE.md` block on Claude, its marketplace entry on Codex. Nothing else is touched. An unknown name is an error. |
 | `crewspec list`            | List the packs installed under `--out DIR` (default `.`): per pack, the target, name, plugin path, agents, skills, and MCP servers. `--target` limits it to one of `claude`, `codex`, `kiro`, `actions`. `--json` prints JSON instead. Writes nothing. |
 

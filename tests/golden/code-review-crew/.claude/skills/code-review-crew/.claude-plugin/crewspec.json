@@ -3,5 +3,8 @@
   "mcps": [
     "github"
   ],
-  "instructions": true
+  "instructions": true,
+  "mods": [
+    "demo"
+  ]
 }

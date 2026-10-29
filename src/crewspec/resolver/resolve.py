@@ -9,7 +9,13 @@ skills, and MCPs keep crewfile declaration order so golden output is stable.
 
 from __future__ import annotations
 
-from crewspec.ir.resolved import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
+from crewspec.ir.resolved import (
+    ResolvedAgent,
+    ResolvedIR,
+    ResolvedMcp,
+    ResolvedMod,
+    ResolvedSkill,
+)
 from crewspec.parser.registry import NodeRegistry
 
 
@@ -55,5 +61,8 @@ def resolve(registry: NodeRegistry) -> ResolvedIR:
         mcps=tuple(
             ResolvedMcp(name=name, server=server)
             for name, server in registry.mcps.items()
+        ),
+        mods=tuple(
+            ResolvedMod(name=name, path=path) for name, path in registry.mods.items()
         ),
     )

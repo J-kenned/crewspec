@@ -1,5 +1,6 @@
 """Tests for the crewfile parser and artifact loader."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -260,6 +261,52 @@ def test_missing_skill_md_raises(tmp_path: Path) -> None:
     crewfile = _build_min_crew(tmp_path)
     (tmp_path / "skills" / "s" / "SKILL.md").unlink()
     with pytest.raises(MissingArtifactError, match="SKILL.md"):
+        load_crewfile(crewfile)
+
+
+def _add_mod(tmp_path: Path, crewfile: Path, name: str = "d") -> None:
+    """Declare mod ``name`` under ``mods/d`` with the two files the loader checks."""
+
+    _write(tmp_path / "mods" / "d" / ".claude-plugin" / "plugin.json", "{}\n")
+    _write(tmp_path / "mods" / "d" / "hooks" / "hooks.json", "{}\n")
+    crewfile.write_text(crewfile.read_text() + f"mods:\n  {name}:\n    path: mods/d\n")
+
+
+def test_mod_resolves_to_its_directory(tmp_path: Path) -> None:
+    crewfile = _build_min_crew(tmp_path)
+    _add_mod(tmp_path, crewfile)
+    assert load_crewfile(crewfile).registry.mods == {"d": tmp_path / "mods" / "d"}
+
+
+def test_mod_named_after_the_pack_is_rejected(tmp_path: Path) -> None:
+    # It would be emitted to .claude/skills/mini/, the pack's own plugin dir.
+    crewfile = _build_min_crew(tmp_path)
+    _add_mod(tmp_path, crewfile, name="mini")
+    with pytest.raises(CrewfileSyntaxError, match="mods.mini has the pack's name"):
+        load_crewfile(crewfile)
+
+
+def test_mod_key_must_be_a_plugin_name(tmp_path: Path) -> None:
+    # The key becomes a directory name, so a path cannot escape .claude/skills/.
+    crewfile = _build_min_crew(tmp_path)
+    _add_mod(tmp_path, crewfile, name="../../victim")
+    with pytest.raises(CrewfileSyntaxError, match="not a valid mod name"):
+        load_crewfile(crewfile)
+
+
+def test_missing_mod_dir_raises(tmp_path: Path) -> None:
+    crewfile = _build_min_crew(tmp_path)
+    _add_mod(tmp_path, crewfile)
+    shutil.rmtree(tmp_path / "mods" / "d")
+    with pytest.raises(MissingArtifactError, match="mod 'd' directory"):
+        load_crewfile(crewfile)
+
+
+def test_missing_mod_hooks_json_raises(tmp_path: Path) -> None:
+    crewfile = _build_min_crew(tmp_path)
+    _add_mod(tmp_path, crewfile)
+    (tmp_path / "mods" / "d" / "hooks" / "hooks.json").unlink()
+    with pytest.raises(MissingArtifactError, match="hooks/hooks.json"):
         load_crewfile(crewfile)
 
 

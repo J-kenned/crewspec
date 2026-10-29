@@ -30,6 +30,7 @@ class InstallSummary:
     agents: int
     skills: int
     mcps: int
+    mods: int
     out: Path | None
 
 
@@ -70,5 +71,6 @@ def _summarize(ir: ResolvedIR, target: str, *, out: Path | None) -> InstallSumma
         agents=len(ir.agents),
         skills=len(ir.skills),
         mcps=len(ir.mcps),
+        mods=len(ir.mods),
         out=out,
     )

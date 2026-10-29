@@ -1,7 +1,7 @@
 """Pydantic data models for crewspec specs."""
 
 from crewspec.models.agent import AgentDef
-from crewspec.models.crew import CrewDoc
+from crewspec.models.crew import CrewDoc, ModDef
 from crewspec.models.deps import AgentDeps, SkillDeps
 from crewspec.models.interpolate import (
     EnvRef,
@@ -44,6 +44,7 @@ __all__ = [
     "McpServer",
     "MalformedTemplate",
     "MissingEnvVar",
+    "ModDef",
     "Sandbox",
     "Secret",
     "SecretRef",

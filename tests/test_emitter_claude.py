@@ -16,7 +16,13 @@ import pytest
 import yaml
 
 from crewspec.emitters import ClaudeEmitter, EmitError, MissingPersonaDescription
-from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
+from crewspec.ir import (
+    ResolvedAgent,
+    ResolvedIR,
+    ResolvedMcp,
+    ResolvedMod,
+    ResolvedSkill,
+)
 from crewspec.models import HttpMcpServer, StdioMcpServer
 from crewspec.models.mcp import McpServer
 
@@ -55,6 +61,20 @@ def _skill(
         (sub / "file.md").write_text(contents)
 
     return ResolvedSkill(name=name, path=root, skill_md=skill_md)
+
+
+def _mod(tmp_path: Path, name: str) -> ResolvedMod:
+    root = tmp_path / "src" / "mods" / name
+    for rel, text in (
+        (".claude-plugin/plugin.json", f'{{"name": "{name}"}}\n'),
+        (".claude-plugin/types/plugin.d.ts", "// engine-generated\n"),
+        ("hooks/hooks.json", '{"modules": ["./register.tsx"]}\n'),
+        ("hooks/register.tsx", "export default function register() {}\n"),
+    ):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    return ResolvedMod(name=name, path=root)
 
 
 def _mcp(name: str, server: McpServer) -> ResolvedMcp:
@@ -258,6 +278,25 @@ def test_lowercase_skill_md_normalized_on_emit(tmp_path: Path) -> None:
     names = [p.name for p in skill_dir.iterdir()]
     assert "SKILL.md" in names
     assert "skill.md" not in names
+
+
+def test_mods_are_copied_beside_the_plugin_and_recorded(tmp_path: Path) -> None:
+    root = _emit(tmp_path, _ir(mods=(_mod(tmp_path, "demo"),)))
+
+    mod = root.parent / "demo"
+    assert (mod / ".claude-plugin" / "plugin.json").is_file()
+    assert (mod / "hooks" / "register.tsx").is_file()
+    # The engine regenerates .claude-plugin/types/, so it is not shipped.
+    assert not (mod / ".claude-plugin" / "types").exists()
+    state = json.loads((root / ".claude-plugin" / "crewspec.json").read_text())
+    assert state == {"name": PACK, "mcps": [], "instructions": False, "mods": ["demo"]}
+
+
+def test_install_refuses_a_mod_dir_it_did_not_write(tmp_path: Path) -> None:
+    dest = tmp_path / "out"
+    (dest / ".claude" / "skills" / "demo").mkdir(parents=True)
+    with pytest.raises(EmitError, match="not written by pack"):
+        ClaudeEmitter().emit(_ir(mods=(_mod(tmp_path, "demo"),)), dest)
 
 
 def test_no_mcps_or_instructions_touches_nothing_outside_the_plugin(
@@ -618,6 +657,7 @@ def test_two_installs_are_byte_identical_and_clear_stale_files(
         agents=(_agent(tmp_path, skills=(skill,)),),
         skills=(skill,),
         mcps=(_mcp("m", StdioMcpServer(command="serve")),),
+        mods=(_mod(tmp_path, "demo"),),
     )
 
     ClaudeEmitter().emit(ir, dest)
@@ -646,12 +686,14 @@ def test_uninstall_removes_only_what_the_pack_wrote(tmp_path: Path) -> None:
         instructions=_instructions(tmp_path),
         agents=(_agent(tmp_path),),
         mcps=(_mcp("m", StdioMcpServer(command="serve")),),
+        mods=(_mod(tmp_path, "demo"),),
     )
     ClaudeEmitter().emit(ir, dest)
 
     ClaudeEmitter().uninstall(PACK, dest)
 
     assert not dest.joinpath(*PLUGIN).exists()
+    assert not (dest / ".claude" / "skills" / "demo").exists()
     assert (dest / ".claude" / "skills" / "my-skill" / "SKILL.md").read_text() == (
         "mine\n"
     )

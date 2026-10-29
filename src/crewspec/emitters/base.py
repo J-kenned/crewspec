@@ -25,7 +25,8 @@ class PackState(BaseModel):
     ``mcps`` are the ``mcpServers`` keys crewspec owns in the host's config and
     ``instructions`` records whether a managed instructions block was written.
     ``agents``, ``skills`` and ``workflows`` are the files a flat-layout target
-    (Kiro, Actions) wrote outside its pack directory. The next install or
+    (Kiro, Actions) wrote outside its pack directory; ``mods`` the sibling
+    plugin directories the Claude target wrote. The next install or
     ``uninstall`` reads it to remove exactly those.
     """
 
@@ -37,6 +38,7 @@ class PackState(BaseModel):
     agents: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
     workflows: tuple[str, ...] = ()
+    mods: tuple[str, ...] = ()
 
     @classmethod
     def read(cls, path: Path) -> PackState | None:
@@ -59,7 +61,9 @@ class PackState(BaseModel):
         path.parent.mkdir(parents=True, exist_ok=True)
         # The flat-layout lists are omitted when empty so the Claude and Codex
         # state files keep the shape they had before those targets existed.
-        empty = {f for f in ("agents", "skills", "workflows") if not getattr(self, f)}
+        empty = {
+            f for f in ("agents", "skills", "workflows", "mods") if not getattr(self, f)
+        }
         path.write_text(self.model_dump_json(indent=2, exclude=empty) + "\n")
 
 

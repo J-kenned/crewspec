@@ -47,6 +47,7 @@ class NodeRegistry:
 
     ``name`` is the pack name and ``instructions`` the resolved path of the
     optional global instructions file; both pass straight through to the IR.
+    ``mods`` maps each mod name to its resolved plugin directory.
     """
 
     name: str
@@ -54,6 +55,7 @@ class NodeRegistry:
     agents: dict[str, AgentNode] = field(default_factory=dict)
     skills: dict[str, SkillNode] = field(default_factory=dict)
     mcps: dict[str, McpServer] = field(default_factory=dict)
+    mods: dict[str, Path] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -60,6 +60,15 @@ class ResolvedSkill(BaseModel):
     mcps: tuple[str, ...] = ()
 
 
+class ResolvedMod(BaseModel):
+    """A mod: a Claude Code plugin directory an emitter copies whole."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    path: Path
+
+
 class ResolvedAgent(BaseModel):
     """An agent with the skills its emitted file lists.
 
@@ -95,7 +104,8 @@ class ResolvedAgent(BaseModel):
 class ResolvedIR(BaseModel):
     """The whole pack resolved: identity, agents, and every skill and MCP.
 
-    ``agents``, ``skills``, and ``mcps`` are in crewfile declaration order.
+    ``agents``, ``skills``, ``mcps``, and ``mods`` are in crewfile declaration
+    order.
     ``instructions`` is the resolved path of the optional global instructions
     file, or ``None``.
     """
@@ -107,3 +117,4 @@ class ResolvedIR(BaseModel):
     agents: tuple[ResolvedAgent, ...] = ()
     skills: tuple[ResolvedSkill, ...] = ()
     mcps: tuple[ResolvedMcp, ...] = ()
+    mods: tuple[ResolvedMod, ...] = ()

@@ -56,6 +56,7 @@ def test_install_prints_summary_with_counts_and_path(tmp_path: Path) -> None:
     assert "agents: 1" in result.output
     assert "skills: 2" in result.output
     assert "mcps: 1" in result.output
+    assert "mods: 0" in result.output
     assert str(tmp_path.joinpath(*PLUGIN)) in result.output
 
 

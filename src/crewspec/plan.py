@@ -74,6 +74,12 @@ def render_tree(
     else:
         lines.append("  (none)")
 
+    lines += ["", "mods:"]
+    if ir.mods:
+        lines += [f"  • {m.name} — {_display_path(m.path)}" for m in ir.mods]
+    else:
+        lines.append("  (none)")
+
     project = sum(mcp.server.scope == "project" for mcp in ir.mcps)
     count = f"mcp servers: {len(ir.mcps)}"
     if project:
@@ -98,7 +104,8 @@ def _header(ir: ResolvedIR) -> str:
         f"crewspec plan: {ir.name} — "
         f"{_count(len(ir.agents), 'agent')}, "
         f"{_count(len(ir.skills), 'skill')}, "
-        f"{_count(len(ir.mcps), 'mcp server')}"
+        f"{_count(len(ir.mcps), 'mcp server')}, "
+        f"{_count(len(ir.mods), 'mod')}"
     )
 
 

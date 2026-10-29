@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from crewspec.ir import ResolvedAgent, ResolvedIR, ResolvedMcp, ResolvedSkill
+from crewspec.ir import (
+    ResolvedAgent,
+    ResolvedIR,
+    ResolvedMcp,
+    ResolvedMod,
+    ResolvedSkill,
+)
 from crewspec.models.mcp import HttpMcpServer, StdioMcpServer
 from crewspec.plan import render_json, render_tree
 
@@ -30,15 +36,22 @@ def _ir() -> ResolvedIR:
         tools=("Read", "Edit"),
         skills=(fmt, lint),
     )
+    demo = ResolvedMod(name="demo", path=Path("mods/demo"))
     return ResolvedIR(
-        name="review-pack", agents=(base, reviewer), skills=(fmt, lint), mcps=(github,)
+        name="review-pack",
+        agents=(base, reviewer),
+        skills=(fmt, lint),
+        mcps=(github,),
+        mods=(demo,),
     )
 
 
 def test_render_tree_reflects_ir_order() -> None:
     out = render_tree(_ir())
 
-    assert out.startswith("crewspec plan: review-pack — 2 agents, 2 skills, 1 mcp")
+    assert out.startswith(
+        "crewspec plan: review-pack — 2 agents, 2 skills, 1 mcp server, 1 mod"
+    )
     # Agents are printed in the order the IR carries them (crewfile order).
     assert out.index("• base") < out.index("• reviewer")
     # The agent's declared skills, verbatim from the IR.
@@ -47,6 +60,7 @@ def test_render_tree_reflects_ir_order() -> None:
     assert "skills:\n  • format — skills/format\n  • lint — skills/lint" in out
     assert "mcp servers: 1" in out
     assert "github — stdio (gh-mcp serve)" in out
+    assert "mods:\n  • demo — mods/demo" in out
 
 
 def test_render_tree_marks_inherit_all_tools() -> None:
@@ -92,9 +106,10 @@ def test_render_tree_labels_project_scoped_mcps() -> None:
 
 def test_render_tree_handles_empty_ir() -> None:
     out = render_tree(ResolvedIR(name="empty"))
-    assert "crewspec plan: empty — 0 agents, 0 skills, 0 mcp servers" in out
+    assert "crewspec plan: empty — 0 agents, 0 skills, 0 mcp servers, 0 mods" in out
     assert "agents:\n  (none)" in out
     assert "skills:\n  (none)" in out
+    assert "mods:\n  (none)" in out
 
 
 def test_render_json_round_trips_into_ir() -> None:
