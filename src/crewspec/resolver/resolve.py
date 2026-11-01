@@ -65,4 +65,5 @@ def resolve(registry: NodeRegistry) -> ResolvedIR:
         mods=tuple(
             ResolvedMod(name=name, path=path) for name, path in registry.mods.items()
         ),
+        lsp=dict(registry.lsp),
     )

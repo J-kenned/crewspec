@@ -90,6 +90,11 @@ def render_tree(
     else:
         lines.append("  (none)")
 
+    lines += ["", f"lsp servers: {len(ir.lsp)}"]
+    lines += [f"  • {name} — {cfg.get('command', '?')}" for name, cfg in ir.lsp.items()]
+    if not ir.lsp:
+        lines.append("  (none)")
+
     lines += ["", "warnings:"]
     if warnings:
         lines += [f"  ! {message}" for message in warnings]

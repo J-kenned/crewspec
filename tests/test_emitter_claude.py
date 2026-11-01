@@ -292,6 +292,19 @@ def test_mods_are_copied_beside_the_plugin_and_recorded(tmp_path: Path) -> None:
     assert state == {"name": PACK, "mcps": [], "instructions": False, "mods": ["demo"]}
 
 
+def test_lsp_servers_land_in_the_plugin_manifest(tmp_path: Path) -> None:
+    lsp = {
+        "pyright": {
+            "command": "pyright-langserver",
+            "args": ["--stdio"],
+            "extensionToLanguage": {".py": "python"},
+        }
+    }
+    root = _emit(tmp_path, _ir(lsp=lsp))
+    manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
+    assert manifest["lspServers"] == lsp
+
+
 def test_install_refuses_a_mod_dir_it_did_not_write(tmp_path: Path) -> None:
     dest = tmp_path / "out"
     (dest / ".claude" / "skills" / "demo").mkdir(parents=True)

@@ -49,6 +49,8 @@ class CrewDoc(BaseModel):
     skills: dict[str, SkillDef] = Field(default_factory=dict)
     mcps: dict[str, McpServer] = Field(default_factory=dict)
     mods: dict[str, ModDef] = Field(default_factory=dict)
+    #: Opaque: each value is written verbatim to the Claude manifest's ``lspServers``.
+    lsp: dict[str, dict[str, object]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _mod_keys_are_plugin_names(self) -> CrewDoc:

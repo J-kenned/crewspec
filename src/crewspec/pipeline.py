@@ -31,6 +31,7 @@ class InstallSummary:
     skills: int
     mcps: int
     mods: int
+    lsp: int
     out: Path | None
 
 
@@ -72,5 +73,6 @@ def _summarize(ir: ResolvedIR, target: str, *, out: Path | None) -> InstallSumma
         skills=len(ir.skills),
         mcps=len(ir.mcps),
         mods=len(ir.mods),
+        lsp=len(ir.lsp),
         out=out,
     )

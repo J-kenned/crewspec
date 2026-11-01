@@ -310,6 +310,24 @@ def test_missing_mod_hooks_json_raises(tmp_path: Path) -> None:
         load_crewfile(crewfile)
 
 
+def test_lsp_block_is_kept_opaque(tmp_path: Path) -> None:
+    # Unknown keys under a server (futureKey) pass through: the schema is Claude's.
+    crewfile = _build_min_crew(tmp_path)
+    crewfile.write_text(
+        crewfile.read_text() + "lsp:\n  pyright:\n    command: pyright-langserver\n"
+        "    args:\n      - --stdio\n"
+        "    extensionToLanguage:\n      .py: python\n    futureKey: kept\n"
+    )
+    assert load_crewfile(crewfile).registry.lsp == {
+        "pyright": {
+            "command": "pyright-langserver",
+            "args": ["--stdio"],
+            "extensionToLanguage": {".py": "python"},
+            "futureKey": "kept",
+        }
+    }
+
+
 def test_missing_frontmatter_fence_raises(tmp_path: Path) -> None:
     crewfile = _build_min_crew(tmp_path)
     _write(tmp_path / "skills" / "s" / "SKILL.md", "# No frontmatter here\n")

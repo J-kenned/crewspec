@@ -56,6 +56,7 @@ class NodeRegistry:
     skills: dict[str, SkillNode] = field(default_factory=dict)
     mcps: dict[str, McpServer] = field(default_factory=dict)
     mods: dict[str, Path] = field(default_factory=dict)
+    lsp: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

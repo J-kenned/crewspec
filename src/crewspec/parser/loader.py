@@ -97,6 +97,7 @@ def load_crewfile(path: str | Path) -> LoadedCrew:
         skills=_load_skills(doc, root, crewfile),
         mcps=dict(doc.mcps),
         mods=_load_mods(doc, root, crewfile),
+        lsp=dict(doc.lsp),
     )
     _validate_references(registry, crewfile)
     if doc.version == "0.2":

@@ -252,7 +252,7 @@ def _echo_summary(summary: InstallSummary, *, dry_run: bool) -> None:
         click.echo(f"Installed crew → {summary.out} (target: {summary.target})")
     click.echo(
         f"  agents: {summary.agents}   skills: {summary.skills}   "
-        f"mcps: {summary.mcps}   mods: {summary.mods}"
+        f"mcps: {summary.mcps}   mods: {summary.mods}   lsp: {summary.lsp}"
     )
 
 

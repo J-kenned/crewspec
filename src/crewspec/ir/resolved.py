@@ -118,3 +118,5 @@ class ResolvedIR(BaseModel):
     skills: tuple[ResolvedSkill, ...] = ()
     mcps: tuple[ResolvedMcp, ...] = ()
     mods: tuple[ResolvedMod, ...] = ()
+    #: Opaque ``lsp:`` map, emitted unchanged as the Claude manifest's ``lspServers``.
+    lsp: dict[str, dict[str, object]] = {}
